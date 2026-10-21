@@ -1,0 +1,7 @@
+.env
+.env.*
+!.env.example
+native/
+prisma/dev.db
+*.log
+*-check.png

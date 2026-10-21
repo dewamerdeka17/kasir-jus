@@ -1,0 +1,162 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  CASHIER
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum ProductStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum TransactionStatus {
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  QRIS
+  TRANSFER
+  EWALLET
+}
+
+enum StockMovementType {
+  IN
+  OUT
+  ADJUSTMENT
+  SALE
+  CANCELLATION
+}
+
+model User {
+  id             Int             @id @default(autoincrement())
+  name           String
+  username       String          @unique
+  email          String?         @unique
+  passwordHash   String
+  role           Role            @default(CASHIER)
+  status         UserStatus      @default(ACTIVE)
+  transactions   Transaction[]
+  stockMovements StockMovement[]
+  expenses       Expense[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+model Category {
+  id        Int       @id @default(autoincrement())
+  name      String    @unique
+  products  Product[]
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+}
+
+model Product {
+  id               Int               @id @default(autoincrement())
+  code             String            @unique
+  categoryId       Int
+  category         Category          @relation(fields: [categoryId], references: [id])
+  name             String
+  image            String?
+  emoji            String            @default("🥤")
+  costPrice        Int
+  sellingPrice     Int
+  discountPercent  Int               @default(0)
+  stock            Int               @default(0)
+  status           ProductStatus     @default(ACTIVE)
+  transactionItems TransactionItem[]
+  stockMovements   StockMovement[]
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@index([categoryId])
+  @@index([name])
+}
+
+model Transaction {
+  id            Int               @id @default(autoincrement())
+  invoiceNumber String            @unique
+  userId        Int
+  user          User              @relation(fields: [userId], references: [id])
+  subtotal      Int
+  discount      Int               @default(0)
+  total         Int
+  paymentMethod PaymentMethod
+  amountPaid    Int
+  changeAmount  Int
+  status        TransactionStatus @default(COMPLETED)
+  items         TransactionItem[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  @@index([createdAt])
+  @@index([userId])
+}
+
+model TransactionItem {
+  id            Int         @id @default(autoincrement())
+  transactionId Int
+  transaction   Transaction @relation(fields: [transactionId], references: [id], onDelete: Cascade)
+  productId     Int
+  product       Product     @relation(fields: [productId], references: [id])
+  productName   String
+  quantity      Int
+  price         Int
+  costPrice     Int
+  subtotal      Int
+
+  @@index([transactionId])
+  @@index([productId])
+}
+
+model StockMovement {
+  id          Int               @id @default(autoincrement())
+  productId   Int
+  product     Product           @relation(fields: [productId], references: [id], onDelete: Cascade)
+  type        StockMovementType
+  quantity    Int
+  description String
+  createdById Int?
+  createdBy   User?             @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt   DateTime          @default(now())
+
+  @@index([productId])
+  @@index([createdAt])
+  @@index([createdById])
+}
+
+model Expense {
+  id          Int      @id @default(autoincrement())
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+  category    String
+  amount      Int
+  description String
+  expenseDate DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId])
+  @@index([expenseDate])
+}
+
+model Setting {
+  id        Int      @id @default(autoincrement())
+  key       String   @unique
+  value     String
+  updatedAt DateTime @updatedAt
+}

@@ -1,0 +1,11 @@
+import Link from "next/link";
+import { Search } from "lucide-react";
+import { requireSession } from "@/lib/auth";
+import { dateTime, rupiah } from "@/lib/format";
+import { prisma } from "@/lib/prisma";
+
+export default async function TransactionsPage({ searchParams }: { searchParams: Promise<{ q?: string; status?: string }> }) {
+  const session = await requireSession(); const { q = "", status = "" } = await searchParams;
+  const transactions = await prisma.transaction.findMany({ where: { ...(session.role === "CASHIER" ? { userId: session.userId } : {}), ...(status === "CANCELLED" || status === "COMPLETED" ? { status } : {}), ...(q ? { OR: [{ invoiceNumber: { contains: q } }, { user: { name: { contains: q } } }] } : {}) }, include: { user: true, _count: { select: { items: true } } }, orderBy: { createdAt: "desc" }, take: 100 });
+  return <><header className="page-header"><div><span className="eyebrow green">RIWAYAT</span><h1>{session.role==="ADMIN"?"Semua Transaksi":"Transaksi Saya"}</h1><p>Telusuri transaksi dan cetak ulang struk.</p></div></header><article className="card section-card"><form className="filter-bar"><div className="search-box"><Search size={17}/><input name="q" defaultValue={q} placeholder="Cari invoice atau kasir..."/></div><select name="status" defaultValue={status}><option value="">Semua status</option><option value="COMPLETED">Selesai</option><option value="CANCELLED">Dibatalkan</option></select><button className="button secondary">Terapkan</button></form><div className="table-wrap"><table className="data-table"><thead><tr><th>Invoice</th><th>Tanggal</th><th>Kasir</th><th>Item</th><th>Pembayaran</th><th>Total</th><th>Status</th></tr></thead><tbody>{transactions.map((item)=><tr key={item.id}><td><Link className="text-link" href={`/transaksi/${item.id}`}>{item.invoiceNumber}</Link></td><td>{dateTime(item.createdAt)}</td><td>{item.user.name}</td><td>{item._count.items}</td><td>{item.paymentMethod}</td><td><strong>{rupiah(item.total)}</strong></td><td><span className={`badge ${item.status==="CANCELLED"?"danger":""}`}>{item.status==="COMPLETED"?"Selesai":"Dibatalkan"}</span></td></tr>)}</tbody></table>{!transactions.length&&<div className="empty">Transaksi tidak ditemukan.</div>}</div></article></>;
+}

@@ -1,0 +1,10 @@
+<resources>
+    <style name="Theme.JusMerdeka" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:fontFamily">sans</item>
+        <item name="android:colorAccent">#F59E3D</item>
+        <item name="android:navigationBarColor">#1B6B47</item>
+        <item name="android:statusBarColor">#1B6B47</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowBackground">#F6F8F5</item>
+    </style>
+</resources>

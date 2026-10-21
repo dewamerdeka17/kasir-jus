@@ -1,0 +1,23 @@
+import Link from "next/link";
+import { Banknote, CircleDollarSign, CupSoda, ReceiptText, Trophy } from "lucide-react";
+import { SalesChart } from "@/components/sales-chart";
+import { requireAdmin } from "@/lib/auth";
+import { jakartaDayRange } from "@/lib/dates";
+import { dateTime, rupiah } from "@/lib/format";
+import { prisma } from "@/lib/prisma";
+
+export default async function DashboardPage() {
+  const session = await requireAdmin(); const today = jakartaDayRange();
+  const since = new Date(today.start.getTime() - 6 * 86_400_000);
+  const [todayTx, recent, chartTx, topItems, todayExpenses] = await Promise.all([
+    prisma.transaction.findMany({ where: { status: "COMPLETED", createdAt: { gte: today.start, lt: today.end } }, include: { items: true } }),
+    prisma.transaction.findMany({ where: { status: "COMPLETED" }, include: { user: true }, orderBy: { createdAt: "desc" }, take: 6 }),
+    prisma.transaction.findMany({ where: { status: "COMPLETED", createdAt: { gte: since, lt: today.end } }, select: { total: true, createdAt: true } }),
+    prisma.transactionItem.groupBy({ by: ["productId", "productName"], where: { transaction: { status: "COMPLETED", createdAt: { gte: since } } }, _sum: { quantity: true }, orderBy: { _sum: { quantity: "desc" } }, take: 5 }),
+    prisma.expense.aggregate({ where: { expenseDate: { gte: today.start, lt: today.end } }, _sum: { amount: true } }),
+  ]);
+  const revenue = todayTx.reduce((s,t)=>s+t.total,0); const cups = todayTx.reduce((s,t)=>s+t.items.reduce((a,i)=>a+i.quantity,0),0); const profit = todayTx.reduce((s,t)=>s+t.items.reduce((a,i)=>a+(i.price-i.costPrice)*i.quantity,0),0)-todayTx.reduce((s,t)=>s+t.discount,0)-(todayExpenses._sum.amount||0);
+  const chart = Array.from({length:7},(_,index)=>{const date=new Date(since.getTime()+index*86_400_000);const key=new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Jakarta"}).format(date);return {label:new Intl.DateTimeFormat("id-ID",{weekday:"short",timeZone:"Asia/Jakarta"}).format(date),total:chartTx.filter((t)=>new Intl.DateTimeFormat("en-CA",{timeZone:"Asia/Jakarta"}).format(t.createdAt)===key).reduce((s,t)=>s+t.total,0)}});
+  const stats = [["Penjualan Hari Ini",rupiah(revenue),"Omzet transaksi selesai",Banknote],["Jumlah Transaksi",String(todayTx.length),"transaksi hari ini",ReceiptText],["Produk Terjual",String(cups),"cup terjual",CupSoda],["Laba Bersih Hari Ini",rupiah(profit),"setelah diskon dan pengeluaran",CircleDollarSign]] as const;
+  return <><header className="page-header"><div><span className="eyebrow green">RINGKASAN BISNIS</span><h1>Halo, {session.name} 👋</h1><p>Pantau performa Jus Merdeka Jumbo hari ini.</p></div><Link href="/kasir" className="button primary">Buka Kasir</Link></header><section className="stat-grid">{stats.map(([label,value,note,Icon])=><article className="card stat-card" key={label}><div className="stat-top"><span>{label}</span><div className="stat-icon"><Icon size={18}/></div></div><div className="stat-value">{value}</div><div className="stat-note">{note}</div></article>)}</section><section className="content-grid"><article className="card section-card"><div className="section-title"><div><h2>Tren Penjualan</h2><span className="muted small">7 hari terakhir</span></div><span className="badge">Realtime</span></div><SalesChart data={chart}/></article><article className="card section-card"><div className="section-title"><h2>Produk Terlaris</h2><Trophy size={18} color="#f59e3d"/></div><div className="ranking">{topItems.length?topItems.map((item,index)=><div key={item.productId}><span>{index+1}</span><div><strong>{item.productName}</strong><small>{item._sum.quantity||0} cup</small></div><div className="rank-bar"><i style={{width:`${Math.max(12,((item._sum.quantity||0)/(topItems[0]._sum.quantity||1))*100)}%`}}/></div></div>):<div className="empty">Belum ada data penjualan.</div>}</div></article></section><article className="card section-card" style={{marginTop:16}}><div className="section-title"><h2>Transaksi Terbaru</h2><Link href="/transaksi" className="text-link">Lihat semua →</Link></div><div className="table-wrap"><table className="data-table"><thead><tr><th>Invoice</th><th>Waktu</th><th>Kasir</th><th>Metode</th><th>Total</th></tr></thead><tbody>{recent.map((item)=><tr key={item.id}><td><Link className="text-link" href={`/transaksi/${item.id}`}>{item.invoiceNumber}</Link></td><td>{dateTime(item.createdAt)}</td><td>{item.user.name}</td><td><span className="badge gray">{item.paymentMethod}</span></td><td><strong>{rupiah(item.total)}</strong></td></tr>)}</tbody></table>{!recent.length&&<div className="empty">Belum ada transaksi.</div>}</div></article></>;
+}
