@@ -55,7 +55,7 @@ export function ReceiptSettingsForm({ initial }: { initial: ReceiptSettings }) {
     <aside className="receipt-preview-panel">
       <div className="preview-heading"><div><span className="eyebrow green">PREVIEW LANGSUNG</span><h2>Contoh struk</h2></div><span className="badge">{values.receiptPaperWidth} mm · {values.receiptModel === "STANDARD" ? "Standar" : values.receiptModel === "COMPACT" ? "Ringkas" : "Detail"}</span></div>
       <section className={`receipt receipt-preview paper-${values.receiptPaperWidth} receipt-model-${values.receiptModel.toLowerCase()}`}>
-        <div className="receipt-logo">JM</div><h2>{values.storeName || "Nama toko"}</h2><p className="receipt-store-address">{values.address || "Alamat toko"}</p>
+        <div className="receipt-logo">JM</div><h2>{values.storeName || "Nama toko"}</h2><p className="receipt-store-address">{values.address || "Alamat toko"}</p>{values.whatsapp && <p className="receipt-contact">Pemesanan: {values.whatsapp}</p>}
         {values.receiptHeader && <p className="receipt-header-text">{values.receiptHeader}</p>}
         <div className="receipt-dash"/><div className="receipt-meta"><span>No. transaksi</span><b>INV-000123</b><span>Tanggal</span><b>21/10/2026 12:30</b><span>Kasir</span><b>Kasir Demo</b></div><div className="receipt-dash"/>
         <div className="receipt-items"><div><strong>Jus Mangga</strong><span>2 × Rp12.000</span><b>Rp24.000</b></div><div><strong>Jus Alpukat</strong><span>1 × Rp15.000</span><b>Rp15.000</b></div></div><div className="receipt-dash"/>

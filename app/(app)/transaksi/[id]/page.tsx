@@ -25,6 +25,7 @@ export default async function TransactionDetail({ params }: { params: Promise<{ 
         <div className="receipt-logo">JM</div>
         <h2>{config.storeName || "Jus Merdeka Jumbo"}</h2>
         <p className="receipt-store-address">{config.address || "Alamat toko"}</p>
+        {config.whatsapp && <p className="receipt-contact">Pemesanan: {config.whatsapp}</p>}
         {config.receiptHeader && <p className="receipt-header-text">{config.receiptHeader}</p>}
         <div className="receipt-dash"/>
         <div className="receipt-meta"><span>No. transaksi</span><b>{transaction.invoiceNumber}</b><span>Tanggal</span><b>{dateTime(transaction.createdAt)}</b><span>Kasir</span><b>{transaction.user.name}</b></div>
