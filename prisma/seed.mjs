@@ -33,7 +33,7 @@ async function main() {
   const mixes = [["Jus Nanas + Wortel", "MIX-001"], ["Jus Apel + Tomat", "MIX-002"]];
   for (const [name, code] of mixes) await prisma.product.upsert({ where: { code }, update: {}, create: { code, name, sellingPrice: 12000, costPrice: 6000, emoji: "🥤", stock: 18, categoryId: mix.id } });
 
-  const settings = { storeName: "Jus Merdeka Jumbo", address: "Jl. Merdeka No. 45", whatsapp: "0812-3456-7890", receiptFooter: "Terima kasih, sehat selalu!", cashierDiscountAllowed: "true" };
+  const settings = { storeName: "Jus Merdeka Jumbo", address: "Jl. Merdeka No. 45", whatsapp: "0812-3456-7890", receiptHeader: "", receiptFooter: "Terima kasih, sehat selalu!", receiptPaperWidth: "80", receiptModel: "STANDARD", cashierDiscountAllowed: "true" };
   for (const [key, value] of Object.entries(settings)) await prisma.setting.upsert({ where: { key }, update: { value }, create: { key, value } });
 }
 

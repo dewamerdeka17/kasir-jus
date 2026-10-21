@@ -7,9 +7,36 @@ import { dateTime, rupiah } from "@/lib/format";
 import { prisma } from "@/lib/prisma";
 
 export default async function TransactionDetail({ params }: { params: Promise<{ id: string }> }) {
-  const session = await requireSession(); const { id } = await params;
-  const [transaction, settings] = await Promise.all([prisma.transaction.findUnique({ where: { id: Number(id) }, include: { items: true, user: true } }), prisma.setting.findMany()]);
+  const session = await requireSession();
+  const { id } = await params;
+  const [transaction, settings] = await Promise.all([
+    prisma.transaction.findUnique({ where: { id: Number(id) }, include: { items: true, user: true } }),
+    prisma.setting.findMany(),
+  ]);
   if (!transaction || (session.role === "CASHIER" && transaction.userId !== session.userId)) notFound();
-  const config = Object.fromEntries(settings.map((s)=>[s.key,s.value]));
-  return <><header className="page-header no-print"><div><span className="eyebrow green">DETAIL TRANSAKSI</span><h1>{transaction.invoiceNumber}</h1><p>{dateTime(transaction.createdAt)}</p></div><ReceiptActions/></header><div className="receipt-layout"><section className="receipt card"><div className="receipt-logo">JM</div><h2>{config.storeName||"Jus Merdeka Jumbo"}</h2><p>{config.address}</p><div className="receipt-dash"/><div className="receipt-meta"><span>No. transaksi</span><b>{transaction.invoiceNumber}</b><span>Tanggal</span><b>{dateTime(transaction.createdAt)}</b><span>Kasir</span><b>{transaction.user.name}</b></div><div className="receipt-dash"/><div className="receipt-items">{transaction.items.map((item)=><div key={item.id}><strong>{item.productName}</strong><span>{item.quantity} × {rupiah(item.price)}</span><b>{rupiah(item.subtotal)}</b></div>)}</div><div className="receipt-dash"/><div className="receipt-totals"><span>Subtotal</span><b>{rupiah(transaction.subtotal)}</b><span>Diskon</span><b>-{rupiah(transaction.discount)}</b><strong>TOTAL</strong><strong>{rupiah(transaction.total)}</strong><span>Bayar</span><b>{rupiah(transaction.amountPaid)}</b><span>Kembali</span><b>{rupiah(transaction.changeAmount)}</b><span>Metode</span><b>{transaction.paymentMethod}</b></div><div className="receipt-dash"/><p className="receipt-footer">{config.receiptFooter||"Terima kasih!"}<br/>Datang kembali ya 🥭</p>{transaction.status==="CANCELLED"&&<div className="cancel-stamp">DIBATALKAN</div>}</section><aside className="card transaction-side no-print"><h3>Ringkasan</h3><div><span>Status</span><span className={`badge ${transaction.status==="CANCELLED"?"danger":""}`}>{transaction.status==="COMPLETED"?"Selesai":"Dibatalkan"}</span></div><div><span>Jumlah item</span><b>{transaction.items.reduce((s,i)=>s+i.quantity,0)} cup</b></div><div><span>Keuntungan</span><b>{rupiah(transaction.items.reduce((s,i)=>s+(i.price-i.costPrice)*i.quantity,0)-transaction.discount)}</b></div>{session.role==="ADMIN"&&transaction.status==="COMPLETED"&&<form action={cancelTransaction.bind(null,transaction.id)}><button className="button danger wide"><Ban size={17}/> Batalkan transaksi</button></form>}<small>Pembatalan akan mengembalikan stok produk.</small></aside></div></>;
+  const config = Object.fromEntries(settings.map((s) => [s.key, s.value]));
+  const paperWidth = config.receiptPaperWidth === "58" ? "58" : "80";
+  const receiptModel = config.receiptModel === "COMPACT" || config.receiptModel === "DETAILED" ? config.receiptModel.toLowerCase() : "standard";
+  const itemCount = transaction.items.reduce((sum, item) => sum + item.quantity, 0);
+  return <>
+    <header className="page-header no-print"><div><span className="eyebrow green">DETAIL TRANSAKSI</span><h1>{transaction.invoiceNumber}</h1><p>{dateTime(transaction.createdAt)}</p></div><ReceiptActions/></header>
+    <div className="receipt-layout">
+      <section className={`receipt card paper-${paperWidth} receipt-model-${receiptModel}`}>
+        <div className="receipt-logo">JM</div>
+        <h2>{config.storeName || "Jus Merdeka Jumbo"}</h2>
+        <p>{config.address}</p>
+        {config.receiptHeader && <p className="receipt-header-text">{config.receiptHeader}</p>}
+        <div className="receipt-dash"/>
+        <div className="receipt-meta"><span>No. transaksi</span><b>{transaction.invoiceNumber}</b><span>Tanggal</span><b>{dateTime(transaction.createdAt)}</b><span>Kasir</span><b>{transaction.user.name}</b></div>
+        <div className="receipt-dash"/>
+        <div className="receipt-items">{transaction.items.map((item) => <div key={item.id}><strong>{item.productName}</strong><span>{item.quantity} × {rupiah(item.price)}</span><b>{rupiah(item.subtotal)}</b></div>)}</div>
+        <div className="receipt-dash"/>
+        <div className="receipt-totals"><span>Subtotal</span><b>{rupiah(transaction.subtotal)}</b>{receiptModel !== "compact" && <><span>Diskon</span><b>-{rupiah(transaction.discount)}</b></>}<strong>TOTAL</strong><strong>{rupiah(transaction.total)}</strong>{receiptModel === "detailed" && <><span>Bayar</span><b>{rupiah(transaction.amountPaid)}</b><span>Kembali</span><b>{rupiah(transaction.changeAmount)}</b><span>Metode</span><b>{transaction.paymentMethod}</b></>}</div>
+        <div className="receipt-dash"/>
+        <p className="receipt-footer">{config.receiptFooter || "Terima kasih!"}<br/>Datang kembali ya 🥭</p>
+        {transaction.status === "CANCELLED" && <div className="cancel-stamp">DIBATALKAN</div>}
+      </section>
+      <aside className="card transaction-side no-print"><h3>Ringkasan</h3><div><span>Status</span><span className={`badge ${transaction.status === "CANCELLED" ? "danger" : ""}`}>{transaction.status === "COMPLETED" ? "Selesai" : "Dibatalkan"}</span></div><div><span>Jumlah item</span><b>{itemCount} cup</b></div><div><span>Keuntungan</span><b>{rupiah(transaction.items.reduce((sum, item) => sum + (item.price - item.costPrice) * item.quantity, 0) - transaction.discount)}</b></div>{session.role === "ADMIN" && transaction.status === "COMPLETED" && <form action={cancelTransaction.bind(null, transaction.id)}><button className="button danger wide"><Ban size={17}/> Batalkan transaksi</button></form>}<small>Pembatalan akan mengembalikan stok produk.</small></aside>
+    </div>
+  </>;
 }

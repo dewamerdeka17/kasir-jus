@@ -84,7 +84,7 @@ export async function resetUserPassword(formData: FormData) {
 
 export async function updateSettings(formData: FormData) {
   await requireAdmin();
-  for (const key of ["storeName", "address", "whatsapp", "instagram", "tiktok", "receiptFooter", "cashierDiscountAllowed"]) {
+  for (const key of ["storeName", "address", "whatsapp", "instagram", "tiktok", "receiptHeader", "receiptFooter", "receiptPaperWidth", "receiptModel", "cashierDiscountAllowed"]) {
     const value = String(formData.get(key) ?? (key === "cashierDiscountAllowed" ? "false" : ""));
     await prisma.setting.upsert({ where: { key }, update: { value }, create: { key, value } });
   }
