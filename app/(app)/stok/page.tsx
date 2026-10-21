@@ -22,22 +22,22 @@ export default async function StockPage() {
   };
 
   return <>
-    <header className="page-header"><div><span className="eyebrow green">INVENTORI</span><h1>Tambah Stok</h1><p>Pilih produk dan masukkan jumlah stok yang baru datang.</p></div></header>
+    <header className="page-header"><div><span className="eyebrow green">INVENTORI</span><h1>Stok</h1><p>{session.role === "ADMIN" ? "Pilih produk dan masukkan jumlah stok yang baru datang." : "Lihat ketersediaan stok produk."}</p></div></header>
     <section className="stock-summary">
       <div className="card"><CheckCircle2/><span>Aman</span><strong>{counts.safe}</strong></div>
       <div className="card warn"><AlertTriangle/><span>Menipis</span><strong>{counts.low}</strong></div>
       <div className="card out"><XCircle/><span>Habis</span><strong>{counts.out}</strong></div>
     </section>
     <article className="card section-card">
-      <div className="section-title"><h2>Daftar produk</h2><span className="badge"><PackagePlus size={14}/> Stok masuk</span></div>
-      <div className="table-wrap"><table className="data-table"><thead><tr><th>Produk</th><th>Kategori</th><th>Stok saat ini</th><th>Status</th><th>Tambah stok</th></tr></thead><tbody>
+      <div className="section-title"><h2>Daftar produk</h2>{session.role === "ADMIN" && <span className="badge"><PackagePlus size={14}/> Stok masuk</span>}</div>
+      <div className="table-wrap"><table className="data-table"><thead><tr><th>Produk</th><th>Kategori</th><th>Stok saat ini</th><th>Status</th>{session.role === "ADMIN" && <th>Tambah stok</th>}</tr></thead><tbody>
         {products.map((product) => {
           const state = product.stock === 0 ? "Habis" : product.stock <= 10 ? "Menipis" : "Aman";
           return <tr key={product.id}>
             <td><span className="table-product"><i>{product.emoji}</i><strong>{product.name}</strong></span></td>
             <td>{product.category.name}</td><td><strong>{product.stock} cup</strong></td>
             <td><span className={`badge ${product.stock === 0 ? "danger" : product.stock <= 10 ? "warn" : ""}`}>{state}</span></td>
-            <td><form action={addStock} className="inline-form stock-add-form"><input type="hidden" name="productId" value={product.id}/><input aria-label={`Jumlah stok ${product.name}`} name="quantity" type="number" min="1" placeholder="Jumlah" required/><input aria-label={`Catatan stok ${product.name}`} name="description" placeholder="Catatan (opsional)"/><button className="button secondary">Tambah</button></form></td>
+            {session.role === "ADMIN" && <td><form action={addStock} className="inline-form stock-add-form"><input type="hidden" name="productId" value={product.id}/><input aria-label={`Jumlah stok ${product.name}`} name="quantity" type="number" min="1" placeholder="Jumlah" required/><input aria-label={`Catatan stok ${product.name}`} name="description" placeholder="Catatan (opsional)"/><button className="button secondary">Tambah</button></form></td>}
           </tr>;
         })}
       </tbody></table></div>

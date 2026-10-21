@@ -10,7 +10,7 @@ export default async function ProductsPage() {
   const session = await requireSession();
   const products = await prisma.product.findMany({ include: { category: true }, orderBy: { name: "asc" } });
   return <>
-    <header className="page-header"><div><span className="eyebrow green">KATALOG</span><h1>{session.role === "ADMIN" ? "Manajemen Produk" : "Produk & Harga"}</h1><p>Tambah menu, ubah harga jual, dan atur diskon produk.</p></div><Link href="/produk/tambah" className="button primary"><Plus size={17}/> Tambah Produk</Link></header>
+    <header className="page-header"><div><span className="eyebrow green">KATALOG</span><h1>{session.role === "ADMIN" ? "Manajemen Produk" : "Produk & Harga"}</h1><p>{session.role === "ADMIN" ? "Tambah menu, ubah harga jual, dan atur diskon produk." : "Lihat produk, harga jual, dan diskon yang tersedia."}</p></div>{session.role === "ADMIN" && <Link href="/produk/tambah" className="button primary"><Plus size={17}/> Tambah Produk</Link>}</header>
     <article className="card section-card"><div className="table-wrap"><table className="data-table"><thead><tr><th>Produk</th><th>Kategori</th><th>Harga</th><th>Diskon</th>{session.role === "ADMIN" && <th>Modal</th>}<th>Stok</th><th>Status</th><th>Aksi</th></tr></thead><tbody>
       {products.map((product) => { const finalPrice = productPrice(product.sellingPrice, product.discountPercent); return <tr key={product.id}>
         <td><span className="table-product"><i>{product.emoji}</i><span><strong>{product.name}</strong><small>{product.code}</small></span></span></td>

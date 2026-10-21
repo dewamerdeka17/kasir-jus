@@ -8,7 +8,7 @@ const adminNav = [
   ["/produk", "Produk", PackageOpen], ["/kategori", "Kategori", FolderTree], ["/stok", "Stok", Boxes],
   ["/pengeluaran", "Pengeluaran", HandCoins], ["/laporan", "Laporan", BarChart3], ["/users", "Admin", UsersRound], ["/settings", "Pengaturan", Settings],
 ] as const;
-const cashierNav = [["/kasir", "Kasir", ShoppingCart], ["/produk", "Produk", PackageOpen], ["/transaksi", "Transaksi Saya", ClipboardList], ["/stok", "Tambah Stok", Boxes], ["/pengeluaran", "Pengeluaran", HandCoins]] as const;
+const cashierNav = [["/kasir", "Kasir", ShoppingCart], ["/produk", "Produk", PackageOpen], ["/transaksi", "Transaksi Saya", ClipboardList], ["/pengeluaran", "Pengeluaran", HandCoins]] as const;
 
 export function Sidebar({ session }: { session: Session }) {
   const nav = session.role === "ADMIN" ? adminNav : cashierNav;

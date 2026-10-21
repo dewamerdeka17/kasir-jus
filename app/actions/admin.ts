@@ -11,7 +11,7 @@ const priceFields = z.object({ sellingPrice: z.number().int().positive(), discou
 const productFields = priceFields.extend({ name: z.string().trim().min(2), code: z.string().trim().min(2), emoji: z.string().trim().min(1), categoryId: z.number().int().positive(), costPrice: z.number().int().min(0), stock: z.number().int().min(0) });
 
 export async function createProduct(formData: FormData) {
-  await requireSession();
+  await requireAdmin();
   const data = productFields.parse({ name: formData.get("name"), code: formData.get("code"), emoji: formData.get("emoji") || "🥤", categoryId: int(formData.get("categoryId")), costPrice: int(formData.get("costPrice")), sellingPrice: int(formData.get("sellingPrice")), discountPercent: int(formData.get("discountPercent")), stock: int(formData.get("stock")) });
   await prisma.product.create({ data });
   revalidatePath("/produk"); revalidatePath("/kasir"); revalidatePath("/stok");

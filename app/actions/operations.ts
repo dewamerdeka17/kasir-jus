@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
-import { requireSession } from "@/lib/auth";
+import { requireAdmin, requireSession } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
 const stockSchema = z.object({
@@ -19,7 +19,7 @@ const expenseSchema = z.object({
 });
 
 export async function addStock(formData: FormData) {
-  const session = await requireSession();
+  const session = await requireAdmin();
   const data = stockSchema.parse(Object.fromEntries(formData));
   const description = data.description || `Stok masuk oleh ${session.name}`;
 
