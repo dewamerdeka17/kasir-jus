@@ -166,11 +166,11 @@ public class MainActivity extends Activity {
                         break;
                     case "saveProduct": result=db.saveProduct(p.getJSONObject("product")); break;
                     case "archiveProduct": db.archiveProduct(PosDatabase.number(p,"id",1,Long.MAX_VALUE)); result=true; break;
-                    case "checkout": result=publicSale(db.checkout(p)); break;
+                    case "checkout": result=publicSale(db.checkoutCash(p)); break;
                     case "history": result=db.history(); break;
-                    case "debts": result=db.debts(); break;
-                    case "debt": result=db.debt(PosDatabase.number(p,"id",1,Long.MAX_VALUE)); break;
-                    case "payDebt": result=db.payDebt(p); break;
+                    case "expenses": result=db.expenses(p.getString("date"),session.role()); break;
+                    case "addExpense": result=db.addExpense(p.getJSONObject("expense"),session.role()); break;
+                    case "cancelExpense": db.cancelExpense(PosDatabase.number(p,"id",1,Long.MAX_VALUE)); result=true; break;
                     case "sale": result=publicSale(db.sale(PosDatabase.number(p,"id",1,Long.MAX_VALUE))); break;
                     case "cancel": db.cancel(PosDatabase.number(p,"id",1,Long.MAX_VALUE)); result=true; break;
                     case "report": result=db.report(p.getString("day")); break;

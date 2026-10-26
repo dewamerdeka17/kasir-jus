@@ -18,22 +18,65 @@ import java.util.TimeZone;
 public final class PosDatabase extends SQLiteOpenHelper {
     private static final long MAX_MONEY = 100_000_000_000_000L;
     private final Context context;
-    public PosDatabase(Context context) { super(context, "jus-offline.db", null, 3); this.context=context.getApplicationContext(); }
+    public PosDatabase(Context context) { super(context, "jus-offline.db", null, 4); this.context=context.getApplicationContext(); }
 
     @Override public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, category TEXT NOT NULL, price INTEGER NOT NULL CHECK(price>=0), cost INTEGER NOT NULL CHECK(cost>=0), stock INTEGER NOT NULL CHECK(stock>=0), active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)))");
         db.execSQL("CREATE TABLE sales (id INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL UNIQUE, invoice TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, subtotal INTEGER NOT NULL, discount INTEGER NOT NULL, total INTEGER NOT NULL, paid INTEGER NOT NULL, cancelled INTEGER NOT NULL DEFAULT 0 CHECK(cancelled IN (0,1)), receipt TEXT NOT NULL, items TEXT NOT NULL)");
         db.execSQL("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
         db.execSQL("INSERT INTO settings VALUES ('name','JusMerdeka'), ('address',''), ('phone',''), ('footer','Terima kasih!')");
-        createDebtTables(db); seedCatalog(db);
+        createDebtTables(db); createExpenseTable(db); seedCatalog(db);
     }
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        if(oldVersion>=1&&newVersion==3) { if(oldVersion<2) seedCatalog(db); createDebtTables(db); return; }
+        if(oldVersion>=1&&newVersion==4) { if(oldVersion<2) seedCatalog(db); createDebtTables(db); createExpenseTable(db); return; }
         throw new IllegalStateException("Versi database belum didukung. Jangan hapus data aplikasi.");
     }
     private static void createDebtTables(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE IF NOT EXISTS debts (sale_id INTEGER PRIMARY KEY, customer TEXT NOT NULL, phone TEXT NOT NULL, total INTEGER NOT NULL CHECK(total>0), paid INTEGER NOT NULL DEFAULT 0 CHECK(paid>=0 AND paid<=total), created_at TEXT NOT NULL)");
         db.execSQL("CREATE TABLE IF NOT EXISTS debt_payments (id INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL UNIQUE, sale_id INTEGER NOT NULL, amount INTEGER NOT NULL CHECK(amount>0), created_at TEXT NOT NULL)");
+    }
+    private static void createExpenseTable(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL UNIQUE, expense_date TEXT NOT NULL, category TEXT NOT NULL, amount INTEGER NOT NULL CHECK(amount>0), description TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, cancelled INTEGER NOT NULL DEFAULT 0 CHECK(cancelled IN (0,1)))");
+    }
+    public synchronized JSONObject checkoutCash(JSONObject input) throws Exception {
+        if(!"CASH".equals(input.optString("paymentMethod","CASH"))) {
+            JSONArray previous=rows("SELECT id FROM sales WHERE request_id=?",text(input,"requestId",100));
+            if(previous.length()>0) return sale(previous.getJSONObject(0).getLong("id"));
+            throw new IllegalArgumentException("Kasbon sudah dihapus. Pilih pembayaran tunai.");
+        }
+        return checkout(input);
+    }
+    private static void validateExpense(JSONObject p) throws Exception {
+        String date=text(p,"expense_date",10);
+        SimpleDateFormat format=new SimpleDateFormat("yyyy-MM-dd",Locale.US); format.setLenient(false);
+        if(!date.matches("\\d{4}-\\d{2}-\\d{2}")||!format.format(format.parse(date)).equals(date)) throw new IllegalArgumentException("Tanggal pengeluaran tidak valid.");
+        if(!java.util.Arrays.asList("BAHAN_BAKU","OPERASIONAL","TRANSPORTASI","PERALATAN","LAINNYA").contains(text(p,"category",30))) throw new IllegalArgumentException("Kategori pengeluaran tidak valid.");
+        number(p,"amount",1,2_000_000_000);
+        if(text(p,"description",300).length()<3) throw new IllegalArgumentException("Keterangan minimal 3 karakter.");
+        if(!java.util.Arrays.asList("ADMIN","CASHIER").contains(text(p,"created_by",20))) throw new IllegalArgumentException("Pencatat tidak valid.");
+        if(text(p,"request_id",100).length()<16) throw new IllegalArgumentException("ID pengeluaran tidak valid.");
+    }
+    public synchronized JSONObject addExpense(JSONObject input,String role) throws Exception {
+        JSONObject expense=new JSONObject(input.toString()).put("created_by",role); validateExpense(expense);
+        SQLiteDatabase db=getWritableDatabase(); db.beginTransaction();
+        try {
+            JSONArray existing=rows("SELECT * FROM expenses WHERE request_id=?",expense.getString("request_id"));
+            if(existing.length()>0) { db.setTransactionSuccessful(); return existing.getJSONObject(0); }
+            ContentValues v=new ContentValues();
+            for(String key:new String[]{"request_id","expense_date","category","description","created_by"}) v.put(key,expense.getString(key));
+            v.put("amount",expense.getLong("amount")); v.put("created_at",timestamp());
+            long id=db.insertOrThrow("expenses",null,v);
+            JSONObject result=rows("SELECT * FROM expenses WHERE id=?",""+id).getJSONObject(0); db.setTransactionSuccessful(); return result;
+        } finally { db.endTransaction(); }
+    }
+    public synchronized JSONObject expenses(String date,String role) throws Exception {
+        String access="ADMIN".equals(role)?"":" AND created_by='CASHIER'";
+        JSONArray list=rows("SELECT * FROM expenses WHERE expense_date=?"+access+" ORDER BY id DESC LIMIT 500",date);
+        JSONObject summary=rows("SELECT COALESCE(SUM(amount),0) AS total,COUNT(*) AS count FROM expenses WHERE expense_date=? AND cancelled=0"+access,date).getJSONObject(0);
+        return summary.put("items",list);
+    }
+    public synchronized void cancelExpense(long id) {
+        ContentValues v=new ContentValues();v.put("cancelled",1);getWritableDatabase().update("expenses",v,"id=?",new String[]{""+id});
     }
     /** The website seed menu, imported once. Existing and archived names are never overwritten. */
     private void seedCatalog(SQLiteDatabase db) {
@@ -241,25 +284,30 @@ public final class PosDatabase extends SQLiteOpenHelper {
             JSONObject s=sales.getJSONObject(i); revenue+=s.getLong("total"); JSONArray lines=new JSONArray(s.getString("items"));
             for(int j=0;j<lines.length();j++) { JSONObject l=lines.getJSONObject(j); qty+=l.getLong("qty"); cost+=l.getLong("cost")*l.getLong("qty"); }
         }
-        return new JSONObject().put("count",sales.length()).put("revenue",revenue).put("qty",qty).put("profit",revenue-cost);
+        long expenses=rows("SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE expense_date=? AND cancelled=0",day).getJSONObject(0).getLong("total");
+        return new JSONObject().put("count",sales.length()).put("revenue",revenue).put("qty",qty).put("profit",revenue-cost).put("expenses",expenses).put("profitAfterExpenses",revenue-cost-expenses);
     }
     public synchronized String backup() throws Exception {
         SQLiteDatabase db=getWritableDatabase(); db.beginTransaction();
         try {
-            String data=new JSONObject().put("format","jus-merdeka-offline").put("version",2).put("exportedAt",timestamp())
+            String data=new JSONObject().put("format","jus-merdeka-offline").put("version",3).put("exportedAt",timestamp())
                 .put("products",rows("SELECT * FROM products")).put("sales",rows("SELECT * FROM sales"))
-                .put("debts",rows("SELECT * FROM debts")).put("debtPayments",rows("SELECT * FROM debt_payments")).put("settings",settings()).toString();
+                .put("debts",rows("SELECT * FROM debts")).put("debtPayments",rows("SELECT * FROM debt_payments")).put("expenses",rows("SELECT * FROM expenses")).put("settings",settings()).toString();
             db.setTransactionSuccessful(); return data;
         } finally { db.endTransaction(); }
     }
     /** Validate the entire document before touching the current ledger. Insert failures roll back. */
     public synchronized void restore(String data) throws Exception {
         JSONObject b=new JSONObject(data);
-        if(!"jus-merdeka-offline".equals(b.getString("format"))||number(b,"version",1,2)<1)
+        if(!"jus-merdeka-offline".equals(b.getString("format"))||number(b,"version",1,3)<1)
             throw new IllegalArgumentException("Bukan backup JusMerdeka offline yang didukung.");
         JSONArray products=b.getJSONArray("products"), sales=b.getJSONArray("sales");
-        JSONArray debts=b.getInt("version")==2?b.getJSONArray("debts"):new JSONArray();
-        JSONArray payments=b.getInt("version")==2?b.getJSONArray("debtPayments"):new JSONArray();
+        JSONArray debts=b.getInt("version")>=2?b.getJSONArray("debts"):new JSONArray();
+        JSONArray payments=b.getInt("version")>=2?b.getJSONArray("debtPayments"):new JSONArray();
+        JSONArray expenses=b.getInt("version")>=3?b.getJSONArray("expenses"):new JSONArray();
+        for(int i=0;i<expenses.length();i++) {
+            JSONObject e=expenses.getJSONObject(i); validateExpense(e); number(e,"id",1,Long.MAX_VALUE-1); number(e,"cancelled",0,1); text(e,"created_at",40);
+        }
         Map<Long,JSONObject> debtIds=new LinkedHashMap<>(); Map<Long,Long> paidSums=new LinkedHashMap<>();
         for(int i=0;i<debts.length();i++) {
             JSONObject d=debts.getJSONObject(i); long id=number(d,"sale_id",1,Long.MAX_VALUE-1);
@@ -311,12 +359,13 @@ public final class PosDatabase extends SQLiteOpenHelper {
         for(Long id:debtIds.keySet()) if(!saleIds.contains(id)) throw new IllegalArgumentException("Transaksi kasbon backup tidak ditemukan.");
         SQLiteDatabase db=getWritableDatabase(); db.beginTransaction();
         try {
-            db.delete("debt_payments",null,null); db.delete("debts",null,null);
+            db.delete("expenses",null,null); db.delete("debt_payments",null,null); db.delete("debts",null,null);
             db.delete("sales",null,null); db.delete("products",null,null);
             for(int i=0;i<products.length();i++) insertRow(db,"products",products.getJSONObject(i),new String[]{"id","name","category","price","cost","stock","active"});
             for(int i=0;i<sales.length();i++) insertRow(db,"sales",sales.getJSONObject(i),new String[]{"id","request_id","invoice","created_at","subtotal","discount","total","paid","cancelled","receipt","items"});
             for(int i=0;i<debts.length();i++) insertRow(db,"debts",debts.getJSONObject(i),new String[]{"sale_id","customer","phone","total","paid","created_at"});
             for(int i=0;i<payments.length();i++) insertRow(db,"debt_payments",payments.getJSONObject(i),new String[]{"id","request_id","sale_id","amount","created_at"});
+            for(int i=0;i<expenses.length();i++) insertRow(db,"expenses",expenses.getJSONObject(i),new String[]{"id","request_id","expense_date","category","amount","description","created_by","created_at","cancelled"});
             saveSettings(b.getJSONObject("settings")); db.setTransactionSuccessful();
         } finally { db.endTransaction(); }
     }
