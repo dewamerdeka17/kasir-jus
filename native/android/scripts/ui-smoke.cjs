@@ -30,6 +30,11 @@ await page.locator('nav [data-tab="riwayat"]').click();await page.getByRole('but
 await page.locator('nav [data-tab="produk"]').click();await page.getByRole('button',{name:'+ Produk'}).click();
 await page.locator('[name=name]').fill('<img src=x onerror=alert(1)>');await page.locator('[name=price]').fill('12000');
 await page.getByRole('button',{name:'Simpan produk'}).click();
+await page.waitForFunction(()=>document.querySelector('#modal').hidden,{},{timeout:3000}).catch(async e=>{
+  console.error('Product form diagnostics:',await page.locator('#modal').innerText(),await page.locator('#notice').innerText(),errors);
+  console.error('Invalid inputs:',await page.locator('#product-form input:invalid').evaluateAll(inputs=>inputs.map(i=>({name:i.name,value:i.value,message:i.validationMessage}))));
+  throw e;
+});
 if(await page.locator('#content img').count())throw Error('Unsafe product HTML');
 await page.locator('nav [data-tab="laporan"]').click();await page.getByText('Rp19.000',{exact:true}).waitFor();
 await page.locator('nav [data-tab="pengaturan"]').click();await page.getByRole('heading',{name:'Printer Bluetooth'}).waitFor();
