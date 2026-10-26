@@ -132,8 +132,8 @@ document.addEventListener('change',event=>{if(event.target.id==='report-day')try
 document.addEventListener('submit',event=>{
  event.preventDefault();try{
   const f=event.target;const data=Object.fromEntries(new FormData(f));
-  if(f.id==='product-form'){for(const key of ['id','price','cost','stock']){data[key]=Number(data[key]);if(!Number.isSafeInteger(data[key]))throw Error('Gunakan angka rupiah atau stok bulat.');}api('saveProduct',{product:data});close();load();render();notify('Produk disimpan.');}
-  if(f.id==='settings-form'){api('saveSettings',{settings:data});load();notify('Identitas toko disimpan.');}
+  if(f.matches('#product-form')){for(const key of ['id','price','cost','stock']){data[key]=Number(data[key]);if(!Number.isSafeInteger(data[key]))throw Error('Gunakan angka rupiah atau stok bulat.');}api('saveProduct',{product:data});close();load();render();notify('Produk disimpan.');}
+  if(f.matches('#settings-form')){api('saveSettings',{settings:data});load();notify('Identitas toko disimpan.');}
  }catch(e){notify(e.message);}
 });
 try{
