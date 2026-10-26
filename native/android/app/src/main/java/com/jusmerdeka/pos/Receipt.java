@@ -28,7 +28,12 @@ public final class Receipt {
         }
         line(out,separator,columns); line(out,"Subtotal: "+money(sale.getLong("subtotal")),columns);
         line(out,"Diskon: "+money(sale.getLong("discount")),columns); line(out,"TOTAL: "+money(sale.getLong("total")),columns);
-        line(out,"Tunai: "+money(sale.getLong("paid")),columns); line(out,"Kembali: "+money(sale.getLong("paid")-sale.getLong("total")),columns);
+        if("CREDIT".equals(sale.optString("payment_method"))) {
+            line(out,"KASBON - BELUM DIBAYAR SAAT BELI",columns); line(out,"Pelanggan: "+sale.optString("customer"),columns);
+            line(out,"Kasbon awal: "+money(sale.getLong("total")),columns);
+        } else {
+            line(out,"Tunai: "+money(sale.getLong("paid")),columns); line(out,"Kembali: "+money(sale.getLong("paid")-sale.getLong("total")),columns);
+        }
         if(sale.optInt("cancelled")==1) line(out,"*** DIBATALKAN ***",columns);
         line(out,shop.optString("footer"),columns); return out.toString();
     }

@@ -26,7 +26,10 @@ public class PosDatabaseTest {
         return new JSONObject().put("requestId",key).put("discount",1000).put("paid",paid)
             .put("items",new JSONArray().put(new JSONObject().put("id",id).put("qty",qty)));
     }
-    private long stock() throws Exception { return db.products().getJSONObject(0).getLong("stock"); }
+    private long stock() throws Exception {
+        JSONArray products=db.products(); for(int i=0;i<products.length();i++) if(products.getJSONObject(i).getLong("id")==id) return products.getJSONObject(i).getLong("stock");
+        throw new AssertionError("Test product missing");
+    }
     @Test public void checkoutIsDurableAndIdempotent() throws Exception {
         JSONObject input=order("checkout-request-0001",2,20000);
         JSONObject s=db.checkout(input);
@@ -80,6 +83,37 @@ public class PosDatabaseTest {
             assertTrue(receipt.contains("TOTAL:"));
         }
         assertEquals(27,Receipt.bytes("test")[0]);
+    }
+    @Test public void creditCheckoutAndInstallmentsAreAtomicAndIdempotent() throws Exception {
+        JSONObject sale=db.checkout(order("credit-sale-request-001",2,0).put("paymentMethod","CREDIT").put("customer","Bu Ani").put("phone","0812345"));
+        long saleId=sale.getLong("id");
+        assertEquals(3,stock()); assertEquals(19000,db.debt(saleId).getLong("total"));
+        JSONObject payment=new JSONObject().put("id",saleId).put("amount",5000).put("requestId","credit-payment-request-001");
+        db.payDebt(payment); db.payDebt(payment);
+        assertEquals(5000,db.debt(saleId).getLong("paid")); assertEquals(1,db.debt(saleId).getJSONArray("payments").length());
+        try { db.payDebt(new JSONObject().put("id",saleId).put("amount",15000).put("requestId","credit-payment-request-002")); fail("Overpayment accepted"); } catch(IllegalArgumentException expected) {}
+        try { db.cancel(saleId); fail("Paid debt cancelled without refund"); } catch(IllegalArgumentException expected) {}
+        String backup=db.backup(); db.restore(backup);
+        assertEquals(5000,db.debt(saleId).getLong("paid"));
+        db.payDebt(new JSONObject().put("id",saleId).put("amount",14000).put("requestId","credit-payment-request-003"));
+        assertEquals(19000,db.debt(saleId).getLong("paid")); assertEquals(3,stock());
+        assertEquals(19000,db.report(sale.getString("created_at").substring(0,10)).getLong("revenue"));
+    }
+    @Test public void unpaidDebtCancellationReturnsStockAndHidesDebt() throws Exception {
+        JSONObject sale=db.checkout(order("credit-sale-request-002",1,0).put("paymentMethod","CREDIT").put("customer","Pak Budi").put("phone",""));
+        db.cancel(sale.getLong("id")); db.cancel(sale.getLong("id")); assertEquals(5,stock()); assertEquals(0,db.debts().length());
+        try { db.payDebt(new JSONObject().put("id",sale.getLong("id")).put("amount",1000).put("requestId","cancelled-debt-request-001")); fail("Cancelled debt accepted payment"); } catch(IllegalArgumentException expected) {}
+    }
+    @Test public void corruptDebtBackupIsRejectedWithoutLosingData() throws Exception {
+        db.checkout(order("credit-sale-request-003",1,0).put("paymentMethod","CREDIT").put("customer","Ani").put("phone",""));
+        String before=db.backup(); JSONObject bad=new JSONObject(before); bad.getJSONArray("debts").getJSONObject(0).put("paid",1000);
+        try { db.restore(bad.toString()); fail("Unrecorded installment accepted"); } catch(IllegalArgumentException expected) {}
+        assertEquals(backupLedger(before),backupLedger(db.backup()));
+    }
+    @Test public void oldBackupVersionOneStillRestores() throws Exception {
+        db.checkout(order("old-backup-request-001",1,10000));
+        JSONObject old=new JSONObject(db.backup()).put("version",1); old.remove("debts"); old.remove("debtPayments");
+        db.restore(old.toString()); assertEquals(4,stock()); assertEquals(1,db.history().length());
     }
     private String backupLedger(String raw) throws Exception {
         JSONObject json=new JSONObject(raw); json.remove("exportedAt"); return json.toString();

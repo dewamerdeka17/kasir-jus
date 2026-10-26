@@ -44,6 +44,7 @@ public class MainActivity extends Activity {
     private static final int EXPORT=41, IMPORT=42, BLUETOOTH=43;
     private static final int MAX_BACKUP_BYTES=25*1024*1024;
     private PosDatabase db;
+    private OfflineSession session;
     private WebView web;
     private final ExecutorService io=Executors.newSingleThreadExecutor();
     private final ScheduledExecutorService timer=Executors.newSingleThreadScheduledExecutor();
@@ -53,7 +54,7 @@ public class MainActivity extends Activity {
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override public void onCreate(Bundle state) {
-        super.onCreate(state); db=new PosDatabase(this);
+        super.onCreate(state); db=new PosDatabase(this); session=new OfflineSession(this);
         web=new WebView(this); setContentView(web);
         web.setWebChromeClient(new WebChromeClient());
         web.setOnApplyWindowInsetsListener((view,insets)-> {
@@ -97,6 +98,7 @@ public class MainActivity extends Activity {
         return result;
     }
     private void choosePrinter() {
+        try { session.require("choosePrinter"); } catch(IllegalArgumentException e) { message(e.getMessage(),false); return; }
         if(!bluetoothPermission()) { requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT},BLUETOOTH); return; }
         try {
             JSONArray devices=printers();
@@ -145,17 +147,31 @@ public class MainActivity extends Activity {
     }
     public final class Bridge {
         @JavascriptInterface public String request(String raw) {
+            synchronized(session) {
             try {
                 if(raw.length()>200000) throw new IllegalArgumentException("Permintaan terlalu besar.");
                 JSONObject p=new JSONObject(raw); Object result;
-                switch(p.getString("action")) {
+                String action=p.getString("action");
+                if(!action.equals("session")&&!action.equals("login")&&!action.equals("logout")) session.require(action);
+                switch(action) {
+                    case "session": result=new JSONObject().put("role",session.role()); break;
+                    case "login": result=new JSONObject().put("role",session.login(p.getString("role"),p.getString("pin"))); break;
+                    case "logout": session.logout(); result=true; break;
                     case "state": result=new JSONObject().put("products",db.products()).put("settings",db.settings())
-                        .put("printerName",getPreferences(MODE_PRIVATE).getString("printerName","Belum dipilih")); break;
+                        .put("role",session.role()).put("printerName",getPreferences(MODE_PRIVATE).getString("printerName","Belum dipilih"));
+                        if(!session.isAdmin()) {
+                            JSONArray products=((JSONObject)result).getJSONArray("products");
+                            for(int i=0;i<products.length();i++) products.getJSONObject(i).remove("cost");
+                        }
+                        break;
                     case "saveProduct": result=db.saveProduct(p.getJSONObject("product")); break;
                     case "archiveProduct": db.archiveProduct(PosDatabase.number(p,"id",1,Long.MAX_VALUE)); result=true; break;
-                    case "checkout": result=db.checkout(p); break;
+                    case "checkout": result=publicSale(db.checkout(p)); break;
                     case "history": result=db.history(); break;
-                    case "sale": result=db.sale(PosDatabase.number(p,"id",1,Long.MAX_VALUE)); break;
+                    case "debts": result=db.debts(); break;
+                    case "debt": result=db.debt(PosDatabase.number(p,"id",1,Long.MAX_VALUE)); break;
+                    case "payDebt": result=db.payDebt(p); break;
+                    case "sale": result=publicSale(db.sale(PosDatabase.number(p,"id",1,Long.MAX_VALUE))); break;
                     case "cancel": db.cancel(PosDatabase.number(p,"id",1,Long.MAX_VALUE)); result=true; break;
                     case "report": result=db.report(p.getString("day")); break;
                     case "saveSettings": db.saveSettings(p.getJSONObject("settings")); result=true; break;
@@ -183,7 +199,15 @@ public class MainActivity extends Activity {
                 try { return new JSONObject().put("ok",false).put("error",e instanceof IllegalArgumentException?e.getMessage():"Operasi gagal. Data belum diubah; periksa input atau backup.").toString(); }
                 catch(Exception ignored) { return "{\"ok\":false,\"error\":\"Operasi gagal\"}"; }
             }
+            }
         }
+    }
+    private JSONObject publicSale(JSONObject sale) throws Exception {
+        if(!session.isAdmin()) {
+            JSONArray items=sale.optJSONArray("items");
+            if(items!=null) for(int i=0;i<items.length();i++) items.getJSONObject(i).remove("cost");
+        }
+        return sale;
     }
     @Override public void onRequestPermissionsResult(int code,String[] names,int[] grants) {
         super.onRequestPermissionsResult(code,names,grants);
@@ -195,6 +219,8 @@ public class MainActivity extends Activity {
         Uri uri=data.getData();
         io.execute(()-> {
             try {
+                synchronized(session) {
+                session.require(request==EXPORT?"backup":"restore");
                 if(request==EXPORT) {
                     byte[] bytes=db.backup().getBytes(StandardCharsets.UTF_8);
                     if(bytes.length>MAX_BACKUP_BYTES) throw new IllegalArgumentException("Backup melebihi batas 25 MB. Hubungi pengembang untuk ekspor data besar.");
@@ -215,9 +241,10 @@ public class MainActivity extends Activity {
                     String details="Backup: "+info.optString("exportedAt","tanggal tidak diketahui")+"\n"+info.getJSONArray("products").length()+" produk, "+info.getJSONArray("sales").length()+" transaksi.\n\nGanti seluruh data di HP ini?";
                     runOnUiThread(()-> { if(!destroyed) new AlertDialog.Builder(MainActivity.this).setTitle("Konfirmasi pemulihan")
                         .setMessage(details).setNegativeButton("Batal",null).setPositiveButton("Ganti data",(d,w)->io.execute(()-> {
-                            try { db.restore(backup); message("Backup dipulihkan. Keranjang dikosongkan.",true); }
+                            try { synchronized(session) { session.require("restore"); db.restore(backup); } message("Backup dipulihkan. Keranjang dikosongkan.",true); }
                             catch(Exception e) { message("Backup tidak valid. Data lama tetap tersimpan.",false); }
                         })).show(); });
+                }
                 }
             } catch(Exception e) { message(e instanceof IllegalArgumentException?e.getMessage():"Proses file gagal. Data kasir tetap tersimpan.",false); }
         });

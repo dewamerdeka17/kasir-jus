@@ -17,16 +17,39 @@ import java.util.TimeZone;
 /** Single-device ledger. All money is integer rupiah; checkout and restore are atomic. */
 public final class PosDatabase extends SQLiteOpenHelper {
     private static final long MAX_MONEY = 100_000_000_000_000L;
-    public PosDatabase(Context context) { super(context, "jus-offline.db", null, 1); }
+    private final Context context;
+    public PosDatabase(Context context) { super(context, "jus-offline.db", null, 3); this.context=context.getApplicationContext(); }
 
     @Override public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, category TEXT NOT NULL, price INTEGER NOT NULL CHECK(price>=0), cost INTEGER NOT NULL CHECK(cost>=0), stock INTEGER NOT NULL CHECK(stock>=0), active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)))");
         db.execSQL("CREATE TABLE sales (id INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL UNIQUE, invoice TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, subtotal INTEGER NOT NULL, discount INTEGER NOT NULL, total INTEGER NOT NULL, paid INTEGER NOT NULL, cancelled INTEGER NOT NULL DEFAULT 0 CHECK(cancelled IN (0,1)), receipt TEXT NOT NULL, items TEXT NOT NULL)");
         db.execSQL("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
         db.execSQL("INSERT INTO settings VALUES ('name','JusMerdeka'), ('address',''), ('phone',''), ('footer','Terima kasih!')");
+        createDebtTables(db); seedCatalog(db);
     }
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
+        if(oldVersion>=1&&newVersion==3) { if(oldVersion<2) seedCatalog(db); createDebtTables(db); return; }
         throw new IllegalStateException("Versi database belum didukung. Jangan hapus data aplikasi.");
+    }
+    private static void createDebtTables(SQLiteDatabase db) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS debts (sale_id INTEGER PRIMARY KEY, customer TEXT NOT NULL, phone TEXT NOT NULL, total INTEGER NOT NULL CHECK(total>0), paid INTEGER NOT NULL DEFAULT 0 CHECK(paid>=0 AND paid<=total), created_at TEXT NOT NULL)");
+        db.execSQL("CREATE TABLE IF NOT EXISTS debt_payments (id INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL UNIQUE, sale_id INTEGER NOT NULL, amount INTEGER NOT NULL CHECK(amount>0), created_at TEXT NOT NULL)");
+    }
+    /** The website seed menu, imported once. Existing and archived names are never overwritten. */
+    private void seedCatalog(SQLiteDatabase db) {
+        try(java.io.InputStream in=context.getAssets().open("pos/catalog.json"); java.io.ByteArrayOutputStream out=new java.io.ByteArrayOutputStream()) {
+            byte[] bytes=new byte[4096]; int n; while((n=in.read(bytes))!=-1) out.write(bytes,0,n);
+            JSONArray catalog=new JSONArray(out.toString("UTF-8"));
+            for(int i=0;i<catalog.length();i++) {
+                JSONObject item=catalog.getJSONObject(i);
+                try(Cursor existing=db.rawQuery("SELECT id FROM products WHERE lower(trim(name))=lower(trim(?))",new String[]{item.getString("name")})) {
+                    if(existing.moveToFirst()) continue;
+                }
+                ContentValues v=new ContentValues(); v.put("name",item.getString("name")); v.put("category",item.getString("category"));
+                v.put("price",item.getLong("price")); v.put("cost",item.getLong("cost")); v.put("stock",0);
+                db.insertOrThrow("products",null,v);
+            }
+        } catch(Exception e) { throw new android.database.sqlite.SQLiteException("Daftar menu bawaan gagal dimuat.",e); }
     }
     static long number(JSONObject obj, String key, long min, long max) throws Exception {
         Object raw = obj.get(key);
@@ -125,7 +148,11 @@ public final class PosDatabase extends SQLiteOpenHelper {
                     .put("qty",qty).put("price",p.getLong("price")).put("cost",p.getLong("cost")));
             }
             long discount=number(input,"discount",0,subtotal), total=subtotal-discount;
-            long paid=number(input,"paid",total,MAX_MONEY);
+            boolean credit="CREDIT".equals(input.optString("paymentMethod","CASH"));
+            if(!credit&&!"CASH".equals(input.optString("paymentMethod","CASH"))) throw new IllegalArgumentException("Metode pembayaran tidak valid.");
+            String customer=credit?text(input,"customer",100):"", phone=credit?text(input,"phone",40):"";
+            if(credit&&(customer.isEmpty()||total==0)) throw new IllegalArgumentException("Nama pelanggan dan total kasbon wajib diisi.");
+            long paid=credit?number(input,"paid",0,0):number(input,"paid",total,MAX_MONEY);
             String created=timestamp();
             ContentValues v=new ContentValues();
             v.put("request_id",requestId); v.put("invoice","pending-"+requestId); v.put("created_at",created);
@@ -135,6 +162,11 @@ public final class PosDatabase extends SQLiteOpenHelper {
             String invoice="JM-"+created.substring(0,10).replace("-","")+"-"+String.format(Locale.US,"%06d",id);
             JSONObject sale=new JSONObject().put("id",id).put("invoice",invoice).put("created_at",created)
                 .put("subtotal",subtotal).put("discount",discount).put("total",total).put("paid",paid).put("items",snapshot);
+            sale.put("payment_method",credit?"CREDIT":"CASH").put("customer",customer);
+            if(credit) {
+                ContentValues debt=new ContentValues(); debt.put("sale_id",id); debt.put("customer",customer); debt.put("phone",phone);
+                debt.put("total",total); debt.put("paid",0); debt.put("created_at",created); db.insertOrThrow("debts",null,debt);
+            }
             String receipt=Receipt.format(sale,settings(),32);
             v=new ContentValues(); v.put("invoice",invoice); v.put("receipt",receipt);
             db.update("sales",v,"id=?",new String[]{""+id});
@@ -144,18 +176,24 @@ public final class PosDatabase extends SQLiteOpenHelper {
         } finally { db.endTransaction(); }
     }
     public synchronized JSONArray history() throws Exception {
-        return rows("SELECT id,invoice,created_at,total,paid,cancelled FROM sales ORDER BY id DESC LIMIT 500");
+        return rows("SELECT s.id,s.invoice,s.created_at,s.total,s.paid,s.cancelled,CASE WHEN d.sale_id IS NULL THEN 'CASH' ELSE 'CREDIT' END AS payment_method FROM sales s LEFT JOIN debts d ON d.sale_id=s.id ORDER BY s.id DESC LIMIT 500");
     }
     public synchronized JSONObject sale(long id) throws Exception {
         JSONArray found=rows("SELECT * FROM sales WHERE id=?",""+id);
         if(found.length()!=1) throw new IllegalArgumentException("Transaksi tidak ditemukan.");
-        JSONObject sale=found.getJSONObject(0); sale.put("items",new JSONArray(sale.getString("items"))); return sale;
+        JSONObject sale=found.getJSONObject(0); sale.put("items",new JSONArray(sale.getString("items")));
+        JSONArray debt=rows("SELECT * FROM debts WHERE sale_id=?",""+id);
+        sale.put("payment_method",debt.length()>0?"CREDIT":"CASH");
+        if(debt.length()>0) sale.put("customer",debt.getJSONObject(0).getString("customer"));
+        return sale;
     }
     public synchronized void cancel(long id) throws Exception {
         SQLiteDatabase db=getWritableDatabase(); db.beginTransaction();
         try {
             JSONObject s=sale(id);
             if(s.getInt("cancelled")==0) {
+                JSONArray debt=rows("SELECT paid FROM debts WHERE sale_id=?",""+id);
+                if(debt.length()>0&&debt.getJSONObject(0).getLong("paid")>0) throw new IllegalArgumentException("Kasbon sudah menerima pembayaran dan tidak bisa dibatalkan.");
                 db.execSQL("UPDATE sales SET cancelled=1 WHERE id=? AND cancelled=0",new Object[]{id});
                 JSONArray lines=s.getJSONArray("items");
                 for(int i=0;i<lines.length();i++) {
@@ -164,6 +202,35 @@ public final class PosDatabase extends SQLiteOpenHelper {
                 }
             }
             db.setTransactionSuccessful();
+        } finally { db.endTransaction(); }
+    }
+    public synchronized JSONArray debts() throws Exception {
+        return rows("SELECT d.*,s.invoice FROM debts d JOIN sales s ON s.id=d.sale_id WHERE s.cancelled=0 ORDER BY (d.paid<d.total) DESC,d.sale_id DESC LIMIT 500");
+    }
+    public synchronized JSONObject debt(long id) throws Exception {
+        JSONArray found=rows("SELECT d.*,s.invoice,s.cancelled FROM debts d JOIN sales s ON s.id=d.sale_id WHERE d.sale_id=?",""+id);
+        if(found.length()!=1) throw new IllegalArgumentException("Kasbon tidak ditemukan.");
+        return found.getJSONObject(0).put("payments",rows("SELECT * FROM debt_payments WHERE sale_id=? ORDER BY id DESC",""+id));
+    }
+    public synchronized JSONObject payDebt(JSONObject input) throws Exception {
+        long id=number(input,"id",1,Long.MAX_VALUE), amount=number(input,"amount",1,MAX_MONEY);
+        String key=text(input,"requestId",100);
+        if(key.length()<16) throw new IllegalArgumentException("ID pembayaran tidak valid.");
+        SQLiteDatabase db=getWritableDatabase(); db.beginTransaction();
+        try {
+            JSONArray prior=rows("SELECT * FROM debt_payments WHERE request_id=?",key);
+            if(prior.length()>0) {
+                JSONObject old=prior.getJSONObject(0);
+                if(old.getLong("sale_id")!=id||old.getLong("amount")!=amount) throw new IllegalArgumentException("ID pembayaran sudah dipakai.");
+                db.setTransactionSuccessful(); return debt(id);
+            }
+            JSONObject d=debt(id);
+            if(d.getInt("cancelled")==1) throw new IllegalArgumentException("Transaksi sudah dibatalkan.");
+            if(amount>d.getLong("total")-d.getLong("paid")) throw new IllegalArgumentException("Pembayaran melebihi sisa kasbon.");
+            ContentValues v=new ContentValues(); v.put("request_id",key); v.put("sale_id",id); v.put("amount",amount); v.put("created_at",timestamp());
+            db.insertOrThrow("debt_payments",null,v);
+            db.execSQL("UPDATE debts SET paid=paid+? WHERE sale_id=?",new Object[]{amount,id});
+            JSONObject result=debt(id); db.setTransactionSuccessful(); return result;
         } finally { db.endTransaction(); }
     }
     public synchronized JSONObject report(String day) throws Exception {
@@ -179,18 +246,37 @@ public final class PosDatabase extends SQLiteOpenHelper {
     public synchronized String backup() throws Exception {
         SQLiteDatabase db=getWritableDatabase(); db.beginTransaction();
         try {
-            String data=new JSONObject().put("format","jus-merdeka-offline").put("version",1).put("exportedAt",timestamp())
+            String data=new JSONObject().put("format","jus-merdeka-offline").put("version",2).put("exportedAt",timestamp())
                 .put("products",rows("SELECT * FROM products")).put("sales",rows("SELECT * FROM sales"))
-                .put("settings",settings()).toString();
+                .put("debts",rows("SELECT * FROM debts")).put("debtPayments",rows("SELECT * FROM debt_payments")).put("settings",settings()).toString();
             db.setTransactionSuccessful(); return data;
         } finally { db.endTransaction(); }
     }
     /** Validate the entire document before touching the current ledger. Insert failures roll back. */
     public synchronized void restore(String data) throws Exception {
         JSONObject b=new JSONObject(data);
-        if(!"jus-merdeka-offline".equals(b.getString("format"))||number(b,"version",1,1)!=1)
-            throw new IllegalArgumentException("Bukan backup JusMerdeka offline versi 1.");
+        if(!"jus-merdeka-offline".equals(b.getString("format"))||number(b,"version",1,2)<1)
+            throw new IllegalArgumentException("Bukan backup JusMerdeka offline yang didukung.");
         JSONArray products=b.getJSONArray("products"), sales=b.getJSONArray("sales");
+        JSONArray debts=b.getInt("version")==2?b.getJSONArray("debts"):new JSONArray();
+        JSONArray payments=b.getInt("version")==2?b.getJSONArray("debtPayments"):new JSONArray();
+        Map<Long,JSONObject> debtIds=new LinkedHashMap<>(); Map<Long,Long> paidSums=new LinkedHashMap<>();
+        for(int i=0;i<debts.length();i++) {
+            JSONObject d=debts.getJSONObject(i); long id=number(d,"sale_id",1,Long.MAX_VALUE-1);
+            if(debtIds.put(id,d)!=null||text(d,"customer",100).isEmpty()) throw new IllegalArgumentException("Kasbon backup tidak valid.");
+            text(d,"phone",40); text(d,"created_at",40); long total=number(d,"total",1,MAX_MONEY); number(d,"paid",0,total);
+        }
+        for(int i=0;i<payments.length();i++) {
+            JSONObject payment=payments.getJSONObject(i); number(payment,"id",1,Long.MAX_VALUE-1);
+            if(text(payment,"request_id",100).length()<16) throw new IllegalArgumentException("ID pelunasan tidak valid.");
+            text(payment,"created_at",40); long id=number(payment,"sale_id",1,Long.MAX_VALUE-1),amount=number(payment,"amount",1,MAX_MONEY);
+            if(!debtIds.containsKey(id)) throw new IllegalArgumentException("Kasbon pelunasan tidak ditemukan.");
+            long sum=paidSums.getOrDefault(id,0L);
+            if(amount>debtIds.get(id).getLong("total")-sum) throw new IllegalArgumentException("Pelunasan backup berlebih.");
+            paidSums.put(id,sum+amount);
+        }
+        for(Long id:debtIds.keySet()) if(debtIds.get(id).getLong("paid")!=paidSums.getOrDefault(id,0L)) throw new IllegalArgumentException("Total pelunasan backup tidak cocok.");
+        java.util.Set<Long> saleIds=new java.util.HashSet<>();
         if(products.length()>10000||sales.length()>100000) throw new IllegalArgumentException("Backup terlalu besar.");
         Map<Long,Boolean> productIds=new LinkedHashMap<>();
         for(int i=0;i<products.length();i++) {
@@ -208,7 +294,10 @@ public final class PosDatabase extends SQLiteOpenHelper {
             text(s,"receipt",20000); long subtotal=number(s,"subtotal",0,MAX_MONEY);
             long discount=number(s,"discount",0,subtotal),total=number(s,"total",0,MAX_MONEY);
             if(total!=subtotal-discount) throw new IllegalArgumentException("Total backup tidak cocok.");
-            number(s,"paid",total,MAX_MONEY);
+            long saleId=s.getLong("id"); saleIds.add(saleId);
+            JSONObject d=debtIds.get(saleId);
+            number(s,"paid",d==null?total:0,d==null?MAX_MONEY:0);
+            if(d!=null&&(d.getLong("total")!=total||(s.getInt("cancelled")==1&&d.getLong("paid")!=0))) throw new IllegalArgumentException("Total kasbon backup tidak cocok.");
             JSONArray lines=new JSONArray(s.getString("items")); long sum=0;
             if(lines.length()<1||lines.length()>100) throw new IllegalArgumentException("Item backup tidak valid.");
             for(int j=0;j<lines.length();j++) {
@@ -219,11 +308,15 @@ public final class PosDatabase extends SQLiteOpenHelper {
             }
             if(sum!=subtotal) throw new IllegalArgumentException("Subtotal backup tidak cocok.");
         }
+        for(Long id:debtIds.keySet()) if(!saleIds.contains(id)) throw new IllegalArgumentException("Transaksi kasbon backup tidak ditemukan.");
         SQLiteDatabase db=getWritableDatabase(); db.beginTransaction();
         try {
+            db.delete("debt_payments",null,null); db.delete("debts",null,null);
             db.delete("sales",null,null); db.delete("products",null,null);
             for(int i=0;i<products.length();i++) insertRow(db,"products",products.getJSONObject(i),new String[]{"id","name","category","price","cost","stock","active"});
             for(int i=0;i<sales.length();i++) insertRow(db,"sales",sales.getJSONObject(i),new String[]{"id","request_id","invoice","created_at","subtotal","discount","total","paid","cancelled","receipt","items"});
+            for(int i=0;i<debts.length();i++) insertRow(db,"debts",debts.getJSONObject(i),new String[]{"sale_id","customer","phone","total","paid","created_at"});
+            for(int i=0;i<payments.length();i++) insertRow(db,"debt_payments",payments.getJSONObject(i),new String[]{"id","request_id","sale_id","amount","created_at"});
             saveSettings(b.getJSONObject("settings")); db.setTransactionSuccessful();
         } finally { db.endTransaction(); }
     }
