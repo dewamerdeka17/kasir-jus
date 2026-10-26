@@ -164,7 +164,7 @@ document.addEventListener('input',event=>{
   if(el.id==='search'){query=el.value;$('#products').innerHTML=cards();}
   if(el.id==='discount'||el.id==='paid'){
    if(el.id==='discount')discount=Number(el.value);else paid=el.value;
-   persist();$('#total').textContent=money(total());$('#change').textContent=money(Math.max(0,(paymentMethod==='CREDIT'?0:Math.max(0,Number(paid)-total()))));
+   persist();$('#total').textContent=money(total());if($('.quick-cart strong'))$('.quick-cart strong').textContent=money(total());$('#change').textContent=money(Math.max(0,(paymentMethod==='CREDIT'?0:Math.max(0,Number(paid)-total()))));
   }
  }catch(e){notify(e.message);}
 });

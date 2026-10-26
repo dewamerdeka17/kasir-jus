@@ -34,6 +34,7 @@ await page.locator('#login-pin').fill('654321');await page.getByRole('button',{n
 await page.getByRole('button',{name:/Jus Mangga/}).click();
 await page.getByRole('button',{name:'Tambah jumlah',exact:true}).click();
 await page.locator('#discount').fill('1000');await page.locator('#paid').fill('20000');
+if(await page.locator('.quick-cart strong').innerText()!=='Rp19.000')throw Error('Quick cart total not updated');
 if(await page.locator('#total').innerText()!=='Rp19.000')throw Error('Wrong total');
 if(await page.locator('#change').innerText()!=='Rp1.000')throw Error('Wrong change');
 await page.getByRole('button',{name:'Bayar & simpan'}).click();
@@ -72,6 +73,7 @@ if(await page.locator('.expense-overview strong').innerText()!=='Rp50.000')throw
 if(await page.locator('[data-action=cancelExpense]').count())throw Error('Cashier sees expense cancellation');
 if(await page.evaluate(()=>localStorage.getItem('jm-expense-pending'))!==null)throw Error('Expense recovery key not cleared');
 if(await page.locator('nav [data-tab=kasbon]').count())throw Error('Kasbon menu still exists');
+if(!await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))throw Error('Mobile horizontal overflow');
 await page.screenshot({path:process.env.UI_SCREENSHOT||'/tmp/jm-mobile.png',fullPage:true});
 await page.locator('nav [data-tab="kasir"]').click();
 await page.screenshot({path:(process.env.UI_SCREENSHOT||'/tmp/jm-mobile.png').replace('.png','-kasir.png'),fullPage:true});
