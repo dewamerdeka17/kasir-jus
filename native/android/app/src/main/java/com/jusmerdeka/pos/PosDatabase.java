@@ -31,7 +31,8 @@ public final class PosDatabase extends SQLiteOpenHelper {
         if(oldVersion>=1&&newVersion==5) {
             if(oldVersion<2) seedCatalog(db); createDebtTables(db); createExpenseTable(db);
             addSaleColumn(db,"payment_method","TEXT NOT NULL DEFAULT 'CASH'");
-            addSaleColumn(db,"receipt_wide","TEXT NOT NULL DEFAULT ''"); return;
+            addSaleColumn(db,"receipt_wide","TEXT NOT NULL DEFAULT ''");
+            db.execSQL("UPDATE sales SET payment_method='CREDIT' WHERE id IN (SELECT sale_id FROM debts)"); return;
         }
         throw new IllegalStateException("Versi database belum didukung. Jangan hapus data aplikasi.");
     }
@@ -138,6 +139,8 @@ public final class PosDatabase extends SQLiteOpenHelper {
         JSONObject result = new JSONObject();
         JSONArray rows = rows("SELECT * FROM settings");
         for (int i=0; i<rows.length(); i++) result.put(rows.getJSONObject(i).getString("key"), rows.getJSONObject(i).getString("value"));
+        if(!result.has("header")) result.put("header","");
+        if(!result.has("paper")) result.put("paper","32");
         return result;
     }
     public static JSONObject receiptSettings(JSONObject input) throws Exception {
