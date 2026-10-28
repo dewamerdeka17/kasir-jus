@@ -139,9 +139,9 @@ public final class PosDatabase extends SQLiteOpenHelper {
         JSONObject result = new JSONObject();
         JSONArray rows = rows("SELECT * FROM settings");
         for (int i=0; i<rows.length(); i++) result.put(rows.getJSONObject(i).getString("key"), rows.getJSONObject(i).getString("value"));
-        if(!result.has("header")) result.put("header","");
-        if(!result.has("paper")) result.put("paper","32");
-        return result;
+        JSONObject ordered=new JSONObject();
+        for(String key:new String[]{"name","address","phone","header","footer","paper"}) ordered.put(key,result.optString(key,key.equals("paper")?"32":""));
+        return ordered;
     }
     public static JSONObject receiptSettings(JSONObject input) throws Exception {
         JSONObject result=new JSONObject(input.toString());
