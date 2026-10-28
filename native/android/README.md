@@ -66,3 +66,13 @@ Batasan: satu HP; tidak ada sinkronisasi website/multi-perangkat, QRIS otomatis,
 - Admin dapat mengubah nama/alamat/nomor toko, pesan atas/bawah dan lebar 58/80 mm. Preview Tunai/QRIS memakai `Receipt.format`, sama dengan formatter printer, dan tidak mengubah pengaturan sebelum Simpan.
 - Printer, tes cetak, lebar kertas dan preview ditolak di bridge native untuk kasir. Kasir tidak bisa mengubah printer atau ukuran kertas dari detail struk.
 - UI menghapus label Offline siap, menambah panel pembayaran berwarna, nominal cepat, konfirmasi QRIS, pilihan nota, dan preview kertas. Semua aset tetap dibundel untuk penggunaan tanpa internet.
+
+## Laporan Excel (v2.4)
+
+Admin membuka Laporan, memilih 1 hari / 7 hari / 1 bulan kalender, memilih tanggal acuan, lalu menekan Ekspor laporan Excel (.xlsx). Periode 7 hari berakhir pada tanggal acuan dan mencakup enam hari sebelumnya. Bulan kalender mencakup tanggal pertama sampai terakhir bulan pilihan. Semua waktu laporan memakai WIB. Pilih lokasi simpan melalui pemilih file Android; ekspor tetap bekerja tanpa internet dan hanya diizinkan untuk admin.
+
+Workbook menggunakan template XLSX asli buatan Artifact Tool yang dibundel di `assets/reports/report-template.xlsx`. Angka, tanggal dan jam bertipe numerik, nominal berformat rupiah, header dibekukan, dan tabel dapat difilter. Sheet Ringkasan berisi omzet, transaksi, unit, Tunai/QRIS, pengeluaran, best seller dan tanggal teramai. Harian memuat rincian hari beserta formula; Best Seller mengurutkan produk berdasarkan unit lalu subtotal item. Rincian Tunai dan QRIS berada pada sheet terpisah. Pengeluaran menyertakan catatan batal dengan status; Transaksi Lain memuat transaksi batal dan kasbon lama, agar tidak salah dihitung sebagai Tunai atau QRIS.
+
+Best seller memakai jumlah unit pada transaksi sah. Subtotal produk ditampilkan sebelum diskon nota; omzet memakai total nota setelah diskon. Tanggal teramai memakai jumlah transaksi sah, lalu omzet terbesar, kemudian tanggal paling awal jika seri. Periode kosong tidak membuat produk/tanggal teramai fiktif. Semua transaksi periode diambil dari database, tanpa batas 500 pada riwayat layar. Formula ringkasan dan harian memakai rincian; ranking best seller/tanggal teramai merupakan snapshot saat ekspor, bukan ranking dinamis untuk data baru yang ditambahkan manual di Excel.
+
+HPP dihapus dari tampilan dan formulir Produk. Harga/modal historis di database dan backup tidak dihapus; mengedit produk tanpa HPP tidak mengubah modal lama. Ekspor tidak memuat HPP atau laba berbasis HPP. Angka penjualan dikurangi pengeluaran diberi label sesuai perhitungannya, bukan laba bersih.

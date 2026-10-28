@@ -170,10 +170,11 @@ public final class PosDatabase extends SQLiteOpenHelper {
         if (name.isEmpty()) throw new IllegalArgumentException("Nama produk wajib diisi.");
         ContentValues v = new ContentValues();
         v.put("name", name); v.put("category",text(p,"category",60));
-        v.put("price",number(p,"price",0,1_000_000_000)); v.put("cost",number(p,"cost",0,1_000_000_000));
+        v.put("price",number(p,"price",0,1_000_000_000));
+        if(p.has("cost")) v.put("cost",number(p,"cost",0,1_000_000_000));
         v.put("stock",number(p,"stock",0,1_000_000));
         long id = number(p,"id",0,Long.MAX_VALUE);
-        if (id==0) return getWritableDatabase().insertOrThrow("products",null,v);
+        if (id==0) { if(!v.containsKey("cost"))v.put("cost",0);return getWritableDatabase().insertOrThrow("products",null,v); }
         if (getWritableDatabase().update("products",v,"id=? AND active=1",new String[]{""+id})!=1)
             throw new IllegalArgumentException("Produk tidak ditemukan.");
         return id;
@@ -311,6 +312,16 @@ public final class PosDatabase extends SQLiteOpenHelper {
         }
         long expenses=rows("SELECT COALESCE(SUM(amount),0) AS total FROM expenses WHERE expense_date=? AND cancelled=0",day).getJSONObject(0).getLong("total");
         return new JSONObject().put("count",sales.length()).put("revenue",revenue).put("qty",qty).put("profit",revenue-cost).put("expenses",expenses).put("profitAfterExpenses",revenue-cost-expenses);
+    }
+    public synchronized JSONObject reportRange(String mode,String anchor) throws Exception {
+        JSONObject period=ReportData.period(mode,anchor);String start=period.getString("start"),end=period.getString("end");
+        SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
+        try {
+            JSONObject source=new JSONObject().put("shop",settings())
+                .put("sales",rows("SELECT id,invoice,created_at,subtotal,discount,total,paid,cancelled,payment_method,items FROM sales WHERE substr(created_at,1,10)>=? AND substr(created_at,1,10)<=? ORDER BY created_at,id",start,end))
+                .put("expenses",rows("SELECT * FROM expenses WHERE expense_date>=? AND expense_date<=? ORDER BY expense_date,id",start,end));
+            JSONObject result=ReportData.build(source,period);db.setTransactionSuccessful();return result;
+        }finally{db.endTransaction();}
     }
     public synchronized String backup() throws Exception {
         SQLiteDatabase db=getWritableDatabase(); db.beginTransaction();

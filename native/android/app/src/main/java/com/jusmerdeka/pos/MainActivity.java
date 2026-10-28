@@ -41,10 +41,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @SuppressLint("MissingPermission") // Every Bluetooth entry point checks CONNECT before querying or using paired devices.
 public class MainActivity extends Activity {
     private static final String HOME="file:///android_asset/pos/index.html";
-    private static final int EXPORT=41, IMPORT=42, BLUETOOTH=43;
+    private static final int EXPORT=41, IMPORT=42, BLUETOOTH=43, REPORT=44;
     private static final int MAX_BACKUP_BYTES=25*1024*1024;
     private PosDatabase db;
     private OfflineSession session;
+    private volatile JSONObject pendingReport;
     private WebView web;
     private final ExecutorService io=Executors.newSingleThreadExecutor();
     private final ScheduledExecutorService timer=Executors.newSingleThreadScheduledExecutor();
@@ -174,6 +175,16 @@ public class MainActivity extends Activity {
                     case "sale": result=publicSale(db.sale(PosDatabase.number(p,"id",1,Long.MAX_VALUE))); break;
                     case "cancel": db.cancel(PosDatabase.number(p,"id",1,Long.MAX_VALUE)); result=true; break;
                     case "report": result=db.report(p.getString("day")); break;
+                    case "reportRange": {
+                        JSONObject report=db.reportRange(p.getString("mode"),p.getString("anchor"));
+                        result=new JSONObject().put("period",report.getJSONObject("period")).put("summary",report.getJSONObject("summary")).put("daily",report.getJSONArray("daily")).put("bestSellers",report.getJSONArray("bestSellers"));break;
+                    }
+                    case "exportReport": {
+                        JSONObject period=ReportData.period(p.getString("mode"),p.getString("anchor"));
+                        pendingReport=new JSONObject().put("mode",p.getString("mode")).put("anchor",p.getString("anchor"));
+                        String filename="JusMerdeka-Laporan-"+period.getString("start")+"_"+period.getString("end")+".xlsx";
+                        runOnUiThread(()->startActivityForResult(new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet").addCategory(Intent.CATEGORY_OPENABLE).putExtra(Intent.EXTRA_TITLE,filename),REPORT));result=true;break;
+                    }
                     case "saveSettings": db.saveSettings(p.getJSONObject("settings")); result=true; break;
                     case "previewReceipt": result=Receipt.preview(PosDatabase.receiptSettings(p.getJSONObject("settings")),p.optString("method","CASH")); break;
                     case "choosePrinter": runOnUiThread(()->choosePrinter()); result=true; break;
@@ -223,8 +234,15 @@ public class MainActivity extends Activity {
         io.execute(()-> {
             try {
                 synchronized(session) {
-                session.require(request==EXPORT?"backup":"restore");
-                if(request==EXPORT) {
+                session.require(request==EXPORT?"backup":request==REPORT?"exportReport":"restore");
+                if(request==REPORT) {
+                    JSONObject params=pendingReport;if(params==null)throw new IllegalArgumentException("Pilih periode ekspor kembali.");
+                    JSONObject report=db.reportRange(params.getString("mode"),params.getString("anchor"));
+                    try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")) {
+                        if(out==null)throw new IllegalArgumentException("File Excel tidak dapat ditulis.");XlsxReport.write(MainActivity.this,report,out);
+                    }
+                    pendingReport=null;message("Laporan Excel berhasil disimpan.",false);
+                } else if(request==EXPORT) {
                     byte[] bytes=db.backup().getBytes(StandardCharsets.UTF_8);
                     if(bytes.length>MAX_BACKUP_BYTES) throw new IllegalArgumentException("Backup melebihi batas 25 MB. Hubungi pengembang untuk ekspor data besar.");
                     try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")) {

@@ -8,7 +8,7 @@ await page.addInitScript(()=>{
  const sales=[],expenses=[];let role='';window.printCalls=0;
  window.NativePOS={request(raw){const p=JSON.parse(raw);let data=true;
  if(!['login','logout','session'].includes(p.action)&&!role)return JSON.stringify({ok:false,error:'Silakan login terlebih dahulu.'});
- if(role==='CASHIER'&&['saveProduct','archiveProduct','cancel','report','saveSettings','backup','restore','choosePrinter','testPrint','previewReceipt'].includes(p.action))return JSON.stringify({ok:false,error:'Akses ini hanya untuk admin.'});
+ if(role==='CASHIER'&&['saveProduct','archiveProduct','cancel','report','saveSettings','backup','restore','choosePrinter','testPrint','previewReceipt','reportRange','exportReport'].includes(p.action))return JSON.stringify({ok:false,error:'Akses ini hanya untuk admin.'});
  switch(p.action){
  case 'session':data={role};break;
  case 'login':if((p.role==='ADMIN'&&p.pin==='654321')||(p.role==='CASHIER'&&p.pin==='123456')){role=p.role;data={role};}else return JSON.stringify({ok:false,error:'PIN salah untuk akun yang dipilih.'});break;
@@ -21,6 +21,8 @@ await page.addInitScript(()=>{
  case 'expenses':{const list=expenses.filter(e=>e.expense_date===p.date&&(role==='ADMIN'||e.created_by==='CASHIER'));data={items:list,total:list.filter(e=>!e.cancelled).reduce((n,e)=>n+e.amount,0),count:list.filter(e=>!e.cancelled).length};break;}
  case 'addExpense':{let e=expenses.find(e=>e.request_id===p.expense.request_id);if(!e){e={...p.expense,id:expenses.length+1,created_by:role,created_at:'2026-10-26T11:00:00+07:00',cancelled:0};expenses.push(e);}data=e;break;}
  case 'sale':data=sales.find(s=>s.id===p.id);break;
+ case 'reportRange':data={period:{start:p.anchor,end:p.anchor},summary:{revenue:19000,count:1,qty:2,cash:19000,qris:0,expenses:0,best:{name:'Jus Mangga',qty:2},busiest:{date:p.anchor,count:1,revenue:19000}},bestSellers:[{name:'Jus Mangga',qty:2}]};break;
+ case 'exportReport':window.exportRequest=p;break;
  case 'report':data={count:sales.length,revenue:sales.reduce((s,l)=>s+l.total,0),qty:2,profit:11000,expenses:50000,profitAfterExpenses:-39000};break;
  case 'saveProduct':state.products.push({...p.product,id:state.products.length+1});data=state.products.length;break;
  }
@@ -49,6 +51,7 @@ if(await page.evaluate(()=>localStorage.getItem('jm-pending'))!==null)throw Erro
 await page.getByRole('button',{name:'Tutup',exact:true}).click();
 await page.locator('nav [data-tab="riwayat"]').click();await page.getByRole('button',{name:/JM-TEST/}).waitFor();
 await page.locator('nav [data-tab="produk"]').click();await page.getByRole('button',{name:'+ Produk'}).click();
+if(await page.locator('[name=cost]').count())throw Error('HPP input remains in product editor');
 await page.locator('[name=name]').fill('<img src=x onerror=alert(1)>');await page.locator('[name=price]').fill('12000');
 await page.getByRole('button',{name:'Simpan produk'}).click();
 await page.waitForFunction(()=>document.querySelector('#modal').hidden,{},{timeout:3000}).catch(async e=>{
@@ -57,7 +60,9 @@ await page.waitForFunction(()=>document.querySelector('#modal').hidden,{},{timeo
   throw e;
 });
 if(await page.locator('#content img').count())throw Error('Unsafe product HTML');
-await page.locator('nav [data-tab="laporan"]').click();await page.getByText('Rp19.000',{exact:true}).waitFor();
+await page.locator('nav [data-tab="laporan"]').click();await page.getByRole('heading',{name:'Laporan & ekspor Excel'}).waitFor();
+for(const mode of ['DAY','WEEK','MONTH']){await page.locator('#report-mode').selectOption(mode);await page.getByRole('button',{name:'Ekspor laporan Excel (.xlsx)'}).click();if(await page.evaluate(()=>window.exportRequest.mode)!==mode)throw Error('Wrong export period');}
+
 await page.locator('nav [data-tab="pengaturan"]').click();await page.getByRole('heading',{name:'Printer Bluetooth'}).waitFor();
 await page.locator('#settings-form [name=header]').fill('SEGAR SETIAP HARI');
 await page.locator('#settings-form [name=paper]').selectOption('48');await page.locator('#preview-method').selectOption('QRIS');

@@ -147,6 +147,10 @@ public class PosDatabaseTest {
         JSONObject sale=old.getJSONArray("sales").getJSONObject(0);sale.remove("payment_method");sale.remove("receipt_wide");
         db.restore(old.toString()); assertEquals("CASH",db.history().getJSONObject(0).getString("payment_method")); assertEquals(4,stock());
     }
+    @Test public void editingProductWithoutCostPreservesExistingHistoricalCost() throws Exception {
+        db.saveProduct(new JSONObject().put("id",id).put("name","Jus Mangga").put("category","Jus").put("price",11000).put("stock",7));
+        JSONArray products=db.products();for(int i=0;i<products.length();i++)if(products.getJSONObject(i).getLong("id")==id)assertEquals(4000,products.getJSONObject(i).getLong("cost"));
+    }
     private String backupLedger(String raw) throws Exception {
         JSONObject json=new JSONObject(raw); json.remove("exportedAt"); return json.toString();
     }
