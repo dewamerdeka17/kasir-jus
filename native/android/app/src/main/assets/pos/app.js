@@ -3,7 +3,7 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>'Rp'+Number(n).toLocaleString('id-ID');
 const day=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Jakarta',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-let role='',loginRole='',state={products:[],settings:{}},tab='kasir',cart=[],discount=0,paid='',paymentMethod='CASH',customer='',phone='',query='',selectedCategory='',expenseDate=day(),paying=false,noticeTimer,previewTimer,printReceipt=false,qrisConfirmed=false;
+let role='',loginRole='',state={products:[],settings:{}},tab='kasir',cart=[],discount=0,paid='',paymentMethod='CASH',customer='',phone='',query='',selectedCategory='',expenseDate=day(),paying=false,noticeTimer,previewTimer,printReceipt=false,qrisConfirmed=false,confirmedTotal=null;
 function api(action,data={}) {
   if(!window.NativePOS) throw Error('Buka kasir melalui APK Android.');
   const r=JSON.parse(NativePOS.request(JSON.stringify({action,...data})));
@@ -94,7 +94,7 @@ function renderSettings(){
 function add(id){
  const p=product(id);if(!p)throw Error('Produk tidak tersedia.');
  const l=cart.find(x=>x.id===id);if((l?.qty||0)>=Math.min(999,p.stock))throw Error('Jumlah sudah mencapai stok yang tersedia.');
- if(l)l.qty++;else cart.push({id,qty:1});persist();renderPOS();
+ if(l)l.qty++;else cart.push({id,qty:1});qrisConfirmed=false;confirmedTotal=null;persist();renderPOS();
 }
 function pay(){
  if(paying)return;
@@ -102,7 +102,7 @@ function pay(){
  const amount=Number(paid);
  if(!Number.isSafeInteger(discount)||discount<0||discount>subtotal())throw Error('Diskon harus angka bulat dan tidak melebihi subtotal.');
  if(paymentMethod==='CASH'&&(paid===''||!Number.isSafeInteger(amount)||amount<total()||amount>100000000000000))throw Error('Masukkan uang tunai yang cukup dalam rupiah bulat.');
- if(paymentMethod==='QRIS'&&!qrisConfirmed)throw Error('Pastikan pembayaran QRIS sudah diterima, lalu centang konfirmasi.');
+ if(paymentMethod==='QRIS'&&(!qrisConfirmed||confirmedTotal!==total()))throw Error('Pastikan pembayaran QRIS sudah diterima, lalu centang konfirmasi.');
  const requestId='sale-'+Date.now()+'-'+Array.from(crypto.getRandomValues(new Uint32Array(4)),n=>n.toString(16)).join('-');
  const payload={requestId,items:cart.map(x=>({...x})),discount,paid:paymentMethod==='QRIS'?total():amount,paymentMethod,qrisConfirmed,printReceipt};
  localStorage.setItem('jm-pending',JSON.stringify(payload)); // Durable before native checkout; retry uses the exact same request id.
@@ -140,7 +140,7 @@ document.addEventListener('click',event=>{
    case 'close':close();break;
    case 'viewCart':$('.checkout').scrollIntoView({behavior:'smooth',block:'start'});break;
    case 'add':add(id);break;
-   case 'minus':{const l=cart.find(x=>x.id===id);if(l&&--l.qty===0)cart=cart.filter(x=>x.id!==id);persist();renderPOS();break;}
+   case 'minus':{qrisConfirmed=false;confirmedTotal=null;const l=cart.find(x=>x.id===id);if(l&&--l.qty===0)cart=cart.filter(x=>x.id!==id);persist();renderPOS();break;}
    case 'clear':if(cart.length&&confirm('Kosongkan keranjang?')){cart=[];discount=0;paid='';paymentMethod='CASH';customer='';phone='';persist();renderPOS();}break;
    case 'newProduct':editProduct();break;
    case 'editProduct':editProduct(id);break;
@@ -180,7 +180,7 @@ document.addEventListener('input',event=>{
   }
  }catch(e){notify(e.message);}
 });
-document.addEventListener('change',event=>{if(event.target.id==='qris-confirmed'){qrisConfirmed=event.target.checked;return;}if(event.target.id==='preview-method'||event.target.closest('#settings-form')){updateReceiptPreview();return;}if(event.target.id==='expense-filter'){expenseDate=event.target.value;renderExpenses();return;}if(event.target.id==='report-day')try{renderReport(event.target.value);}catch(e){notify(e.message);}});
+document.addEventListener('change',event=>{if(event.target.id==='qris-confirmed'){qrisConfirmed=event.target.checked;confirmedTotal=qrisConfirmed?total():null;return;}if(event.target.id==='preview-method'||event.target.closest('#settings-form')){updateReceiptPreview();return;}if(event.target.id==='expense-filter'){expenseDate=event.target.value;renderExpenses();return;}if(event.target.id==='report-day')try{renderReport(event.target.value);}catch(e){notify(e.message);}});
 document.addEventListener('submit',event=>{
  event.preventDefault();try{
   const f=event.target;const data=Object.fromEntries(new FormData(f));

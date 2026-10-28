@@ -73,7 +73,11 @@ const denied=await page.evaluate(()=>{try{api('report',{day:'2026-10-26'});retur
 await page.getByRole('button',{name:/Jus Mangga/}).click();
 await page.getByRole('button',{name:'QRIS',exact:true}).click();
 await page.getByRole('button',{name:'Bayar & simpan'}).click();await page.getByRole('status').filter({hasText:'Pastikan pembayaran QRIS'}).waitFor();
-await page.locator('#qris-confirmed').check();await page.getByRole('button',{name:'Cetak nota',exact:true}).click();
+await page.locator('#qris-confirmed').check();
+await page.getByRole('button',{name:'Tambah jumlah',exact:true}).click();
+if(await page.locator('#qris-confirmed').isChecked())throw Error('QRIS confirmation survived a changed cart');
+await page.getByRole('button',{name:'Kurangi jumlah',exact:true}).click();
+await page.getByRole('button',{name:'Cetak nota',exact:true}).click();
 await page.locator('#qris-confirmed').check();
 await page.getByRole('button',{name:'Bayar & simpan'}).click();await page.getByRole('heading',{name:'Transaksi tersimpan'}).waitFor();
 if(await page.getByRole('button',{name:/Batalkan transaksi/}).count())throw Error('Cashier sees cancellation');
