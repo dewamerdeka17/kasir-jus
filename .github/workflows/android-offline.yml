@@ -50,7 +50,7 @@ jobs:
         run: bash gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
       - name: Verify generated Excel sample
         if: success()
-        run: python -c "import base64,pathlib; p=pathlib.Path('native/android/build/reports/sample-export.xlsx'); print('XLSX_SAMPLE_BASE64:'+base64.b64encode(p.read_bytes()).decode())"
+        run: python -c "import base64,pathlib; p=next(pathlib.Path('native/android').rglob('sample-export.xlsx')); print('XLSX_SAMPLE_BASE64:'+base64.b64encode(p.read_bytes()).decode())"
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -58,7 +58,7 @@ jobs:
           path: |
             native/android/app/build/reports/tests/
             native/android/app/build/reports/lint-results-debug.html
-            native/android/build/reports/sample-export.xlsx
+            native/android/**/sample-export.xlsx
       - uses: actions/upload-artifact@v4
         with:
           name: JusMerdeka-offline-debug-apk
