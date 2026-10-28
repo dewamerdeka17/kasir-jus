@@ -5,14 +5,17 @@ const page=await browser.newPage({viewport:{width:390,height:844}});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
 await page.addInitScript(()=>{
  const state={products:[{id:1,name:'Jus Mangga',category:'Jus',price:10000,cost:4000,stock:5}],settings:{name:'JusMerdeka',address:'Gudo',phone:'',footer:'Terima kasih'},printerName:'Belum dipilih'};
- const sales=[],expenses=[];let role='';
+ const sales=[],expenses=[];let role='';window.printCalls=0;
  window.NativePOS={request(raw){const p=JSON.parse(raw);let data=true;
  if(!['login','logout','session'].includes(p.action)&&!role)return JSON.stringify({ok:false,error:'Silakan login terlebih dahulu.'});
- if(role==='CASHIER'&&['saveProduct','archiveProduct','cancel','report','saveSettings','backup','restore'].includes(p.action))return JSON.stringify({ok:false,error:'Akses ini hanya untuk admin.'});
+ if(role==='CASHIER'&&['saveProduct','archiveProduct','cancel','report','saveSettings','backup','restore','choosePrinter','testPrint','previewReceipt'].includes(p.action))return JSON.stringify({ok:false,error:'Akses ini hanya untuk admin.'});
  switch(p.action){
  case 'session':data={role};break;
  case 'login':if((p.role==='ADMIN'&&p.pin==='654321')||(p.role==='CASHIER'&&p.pin==='123456')){role=p.role;data={role};}else return JSON.stringify({ok:false,error:'PIN salah untuk akun yang dipilih.'});break;
  case 'logout':role='';break;
+ case 'previewReceipt':data=p.settings.name+'\n'+(p.settings.header||'')+'\nCONTOH-STRUK\n'+p.method+'\n'+p.settings.footer;break;
+ case 'saveSettings':Object.assign(state.settings,p.settings);break;
+ case 'print':window.printCalls++;break;
  case 'state':data={...state,role};break;case 'history':data=sales;break;case 'checkout':{
  let s=sales.find(s=>s.requestId===p.requestId);if(!s){s={id:sales.length+1,requestId:p.requestId,invoice:'JM-TEST-000001',created_at:'2026-10-26T10:00:00+07:00',total:p.items.reduce((s,l)=>s+l.qty*10000,0)-p.discount,paid:p.paid,cancelled:0,receipt:'JusMerdeka\nJus Mangga\nTOTAL: Rp19.000',payment_method:p.paymentMethod,customer:p.customer};sales.push(s);state.products[0].stock-=p.items[0].qty;}data=s;break;}
  case 'expenses':{const list=expenses.filter(e=>e.expense_date===p.date&&(role==='ADMIN'||e.created_by==='CASHIER'));data={items:list,total:list.filter(e=>!e.cancelled).reduce((n,e)=>n+e.amount,0),count:list.filter(e=>!e.cancelled).length};break;}
@@ -26,6 +29,7 @@ await page.addInitScript(()=>{
 });
 await page.goto(require('node:url').pathToFileURL(require('node:path').resolve(__dirname,'../app/src/main/assets/pos/index.html')).href);
 await page.getByRole('heading',{name:'Masuk ke JusMerdeka'}).waitFor();
+if((await page.locator('body').innerText()).includes('Offline siap'))throw Error('Offline badge remains');
 if(await page.locator('nav').isVisible())throw Error('Navigation visible before login');
 await page.getByRole('button',{name:'Admin',exact:true}).click();
 await page.locator('#login-pin').fill('123456');await page.getByRole('button',{name:'Masuk sebagai Admin'}).click();
@@ -33,7 +37,9 @@ await page.getByRole('alert').filter({hasText:'PIN salah'}).waitFor();
 await page.locator('#login-pin').fill('654321');await page.getByRole('button',{name:'Masuk sebagai Admin'}).click();
 await page.getByRole('button',{name:/Jus Mangga/}).click();
 await page.getByRole('button',{name:'Tambah jumlah',exact:true}).click();
-await page.locator('#discount').fill('1000');await page.locator('#paid').fill('20000');
+await page.locator('#discount').fill('1000');
+for(const [label,amount] of [['10k','10000'],['20k','20000'],['50k','50000'],['100k','100000']]){await page.getByRole('button',{name:label,exact:true}).click();if(await page.locator('#paid').inputValue()!==amount)throw Error('Wrong cash preset '+label);}
+await page.getByRole('button',{name:'20k',exact:true}).click();
 if(await page.locator('.quick-cart strong').innerText()!=='Rp19.000')throw Error('Quick cart total not updated');
 if(await page.locator('#total').innerText()!=='Rp19.000')throw Error('Wrong total');
 if(await page.locator('#change').innerText()!=='Rp1.000')throw Error('Wrong change');
@@ -53,6 +59,11 @@ await page.waitForFunction(()=>document.querySelector('#modal').hidden,{},{timeo
 if(await page.locator('#content img').count())throw Error('Unsafe product HTML');
 await page.locator('nav [data-tab="laporan"]').click();await page.getByText('Rp19.000',{exact:true}).waitFor();
 await page.locator('nav [data-tab="pengaturan"]').click();await page.getByRole('heading',{name:'Printer Bluetooth'}).waitFor();
+await page.locator('#settings-form [name=header]').fill('SEGAR SETIAP HARI');
+await page.locator('#settings-form [name=paper]').selectOption('48');await page.locator('#preview-method').selectOption('QRIS');
+await page.waitForFunction(()=>document.querySelector('#receipt-preview').textContent.includes('SEGAR SETIAP HARI')&&document.querySelector('#receipt-preview').textContent.includes('QRIS'));
+await page.getByRole('button',{name:'Simpan pengaturan struk'}).click();
+await page.screenshot({path:(process.env.UI_SCREENSHOT||'/tmp/jm-mobile.png').replace('.png','-struk.png'),fullPage:true});
 await page.locator('#logout').click();
 await page.getByRole('button',{name:'Kasir',exact:true}).click();
 await page.locator('#login-pin').fill('123456');await page.getByRole('button',{name:'Masuk sebagai Kasir'}).click();
@@ -60,10 +71,22 @@ const visibleTabs=await page.locator('nav button:visible').evaluateAll(bs=>bs.ma
 if(JSON.stringify(visibleTabs)!==JSON.stringify(['kasir','pengeluaran','riwayat']))throw Error('Cashier sees wrong navigation: '+visibleTabs);
 const denied=await page.evaluate(()=>{try{api('report',{day:'2026-10-26'});return false;}catch{return true;}});if(!denied)throw Error('Cashier accessed report');
 await page.getByRole('button',{name:/Jus Mangga/}).click();
-await page.locator('#paid').fill('10000');
+await page.getByRole('button',{name:'QRIS',exact:true}).click();
+await page.getByRole('button',{name:'Bayar & simpan'}).click();await page.getByRole('status').filter({hasText:'Pastikan pembayaran QRIS'}).waitFor();
+await page.locator('#qris-confirmed').check();await page.getByRole('button',{name:'Cetak nota',exact:true}).click();
+await page.locator('#qris-confirmed').check();
 await page.getByRole('button',{name:'Bayar & simpan'}).click();await page.getByRole('heading',{name:'Transaksi tersimpan'}).waitFor();
 if(await page.getByRole('button',{name:/Batalkan transaksi/}).count())throw Error('Cashier sees cancellation');
-await page.getByRole('button',{name:'Pilih printer Bluetooth'}).waitFor();
+if(await page.getByRole('button',{name:/Pilih printer/}).count())throw Error('Cashier sees printer configuration');
+if(await page.locator('#paper').count())throw Error('Cashier can change paper');
+const configDenied=await page.evaluate(()=>['choosePrinter','testPrint','previewReceipt'].every(action=>{try{api(action);return false;}catch{return true;}}));if(!configDenied)throw Error('Cashier can configure printer');
+if(await page.evaluate(()=>window.printCalls)!==1)throw Error('Requested note was not printed once');
+await page.getByRole('button',{name:'Selesai tanpa cetak',exact:true}).click();
+if(await page.evaluate(()=>window.printCalls)!==1)throw Error('No-print choice printed again');
+await page.getByRole('button',{name:/Jus Mangga/}).click();await page.getByRole('button',{name:'10k',exact:true}).click();
+await page.getByRole('button',{name:'Tanpa nota',exact:true}).click();await page.getByRole('button',{name:'Bayar & simpan'}).click();
+await page.getByRole('heading',{name:'Transaksi tersimpan'}).waitFor();
+if(await page.evaluate(()=>window.printCalls)!==1)throw Error('No-print sale triggered printer');
 await page.getByRole('button',{name:'Tutup',exact:true}).click();
 await page.locator('nav [data-tab="pengeluaran"]').click();
 await page.locator('#expense-form [name=amount]').fill('50000');await page.locator('#expense-form [name=description]').fill('Beli mangga 5 kg');
@@ -80,6 +103,6 @@ await page.screenshot({path:(process.env.UI_SCREENSHOT||'/tmp/jm-mobile.png').re
 await page.locator('#logout').click();await page.getByRole('heading',{name:'Masuk ke JusMerdeka'}).waitFor();
 if(await page.locator('nav').isVisible())throw Error('Menu remained after logout');
 if(errors.length)throw Error(errors.join('\n'));
-console.log('PASS: PIN login/error/logout, exact cashier tabs and denied report, offline POS/change/history, product HTML escaping, printer access, cashier expense creation/total, removed kasbon menu; no page errors.');
+console.log('PASS: PIN login/error/logout, exact cashier tabs and denied report, offline POS/change/history, product HTML escaping, admin printer restriction, cash presets, QRIS confirmation, optional printing, live receipt preview, cashier expense creation/total, removed kasbon menu; no page errors.');
 await browser.close();
 })().catch(e=>{console.error(e);process.exit(1)});

@@ -3,17 +3,17 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>'Rp'+Number(n).toLocaleString('id-ID');
 const day=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Jakarta',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-let role='',loginRole='',state={products:[],settings:{}},tab='kasir',cart=[],discount=0,paid='',paymentMethod='CASH',customer='',phone='',query='',selectedCategory='',expenseDate=day(),paying=false,noticeTimer;
+let role='',loginRole='',state={products:[],settings:{}},tab='kasir',cart=[],discount=0,paid='',paymentMethod='CASH',customer='',phone='',query='',selectedCategory='',expenseDate=day(),paying=false,noticeTimer,previewTimer,printReceipt=false,qrisConfirmed=false;
 function api(action,data={}) {
   if(!window.NativePOS) throw Error('Buka kasir melalui APK Android.');
   const r=JSON.parse(NativePOS.request(JSON.stringify({action,...data})));
   if(!r.ok) throw Error(r.error); return r.data;
 }
 function notify(text){$('#notice').textContent=text;$('#notice').hidden=false;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('#notice').hidden=true,6500);}
-function persist(){localStorage.setItem('jm-cart',JSON.stringify({cart,discount,paid,paymentMethod,customer,phone}));}
+function persist(){localStorage.setItem('jm-cart',JSON.stringify({cart,discount,paid,paymentMethod,customer,phone,printReceipt}));}
 function load(){state=api('state');role=state.role;}
 const isAdmin=()=>role==='ADMIN';
-function restoreCart(){try{const draft=JSON.parse(localStorage.getItem('jm-cart')||'null');if(draft){cart=Array.isArray(draft.cart)?draft.cart.filter(l=>Number.isSafeInteger(l.id)&&Number.isInteger(l.qty)&&l.qty>0&&l.qty<=999):[];discount=Number(draft.discount)||0;paid=String(draft.paid??'');paymentMethod='CASH';customer=String(draft.customer||'');phone=String(draft.phone||'');}}catch{cart=[];}}
+function restoreCart(){try{const draft=JSON.parse(localStorage.getItem('jm-cart')||'null');if(draft){cart=Array.isArray(draft.cart)?draft.cart.filter(l=>Number.isSafeInteger(l.id)&&Number.isInteger(l.qty)&&l.qty>0&&l.qty<=999):[];discount=Number(draft.discount)||0;paid=String(draft.paid??'');paymentMethod=draft.paymentMethod==='QRIS'?'QRIS':'CASH';printReceipt=draft.printReceipt===true;customer=String(draft.customer||'');phone=String(draft.phone||'');}}catch{cart=[];}}
 function renderLogin(){
  document.body.classList.remove('admin');$('h1').textContent='Selamat datang';$('nav').hidden=true;$('#logout').hidden=true;$('#modal').hidden=true;
  $('#content').innerHTML=`<section class="card login-card"><div class="login-mark">JM</div><h2>Masuk ke JusMerdeka</h2><p class="muted">Pilih akun, lalu masukkan PIN 6 digit.<br>Tetap bisa masuk tanpa internet.</p><div class="role-options">${[['CASHIER','Kasir'],['ADMIN','Admin']].map(([r,n])=>`<button class="${loginRole===r?'':'secondary'}" data-login-role="${r}" aria-pressed="${loginRole===r}">${n}</button>`).join('')}</div>${loginRole?`<form id="login-form"><label>PIN ${loginRole==='ADMIN'?'Admin':'Kasir'}<input id="login-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="off" required placeholder="••••••"></label><p id="login-error" class="error" role="alert" hidden></p><button type="submit" class="wide">Masuk sebagai ${loginRole==='ADMIN'?'Admin':'Kasir'}</button></form>`:''}</section>`;
@@ -43,7 +43,7 @@ function cartHTML(){
  return cart.map(l=>{const p=product(l.id);return `<div class="line"><div class="row"><div><strong>${esc(p?.name||'Produk tidak tersedia')}</strong><p class="muted">${money(p?.price||0)} / item</p></div><strong>${money((p?.price||0)*l.qty)}</strong></div><div class="stepper"><button class="secondary" aria-label="Kurangi jumlah" data-action="minus" data-id="${l.id}">−</button><span>${l.qty}</span><button class="secondary" aria-label="Tambah jumlah" data-action="add" data-id="${l.id}">+</button></div></div>`;}).join('')||'<p class="empty">Pilih produk untuk mulai menjual.</p>';
 }
 function renderPOS(){
- $('#content').innerHTML=`<div class="catalog-intro"><span class="eyebrow">JUS SEGAR, HARI CERAH</span><h2>Siap melayani hari ini?</h2><p>Pilih menu favorit pelanggan, lalu selesaikan pembayaran.</p></div><div class="pos-layout"><section><label id="search-label">Cari produk<input id="search" class="search" placeholder="Nama atau kategori" value="${esc(query)}" type="search"></label><div class="category-chips"><button class="${selectedCategory?'secondary':''}" data-category="">Semua menu</button>${[...new Set(state.products.map(p=>p.category))].map(c=>`<button class="${selectedCategory===c?'':'secondary'}" data-category="${esc(c)}">${esc(c||'Lainnya')}</button>`).join('')}</div><div class="grid" id="products">${cards()}</div>${state.products.length||!isAdmin()?'':'<button class="wide spaced" data-tab="produk">Tambah produk pertama</button>'}</section><section class="checkout card"><div class="row"><h2>Pesanan</h2><button class="secondary" data-action="clear">Kosongkan</button></div><div id="cart">${cartHTML()}</div><label>Diskon nominal (Rp)<input id="discount" inputmode="numeric" type="number" min="0" step="1" value="${discount}"></label><div class="row line"><span>Subtotal</span><strong id="subtotal">${money(subtotal())}</strong></div><div class="row line"><strong>Total bayar</strong><span class="amount" id="total">${money(total())}</span></div><div class="payment-tag">Pembayaran tunai</div><label>Uang tunai diterima (Rp)<input id="paid" inputmode="numeric" type="number" min="0" step="1" placeholder="Contoh: 20000" value="${esc(paid)}"></label><div class="row"><span>Kembalian</span><strong id="change">${money(Math.max(0,(paymentMethod==='CREDIT'?0:Math.max(0,Number(paid)-total()))))}</strong></div><button class="wide spaced" data-action="pay" ${cart.length?'':'disabled'}>Bayar & simpan</button><p class="muted">Tersimpan di HP. Cetak struk setelah pembayaran berhasil.</p></section></div>${cart.length?`<div class="quick-cart"><button class="wide" data-action="viewCart"><span>${cart.reduce((n,l)=>n+l.qty,0)} item · Lihat pesanan</span><strong>${money(total())}</strong></button></div>`:''}`;
+ $('#content').innerHTML=`<div class="catalog-intro"><span class="eyebrow">JUS SEGAR, HARI CERAH</span><h2>Siap melayani hari ini?</h2><p>Pilih menu favorit pelanggan, lalu selesaikan pembayaran.</p></div><div class="pos-layout"><section><label id="search-label">Cari produk<input id="search" class="search" placeholder="Nama atau kategori" value="${esc(query)}" type="search"></label><div class="category-chips"><button class="${selectedCategory?'secondary':''}" data-category="">Semua menu</button>${[...new Set(state.products.map(p=>p.category))].map(c=>`<button class="${selectedCategory===c?'':'secondary'}" data-category="${esc(c)}">${esc(c||'Lainnya')}</button>`).join('')}</div><div class="grid" id="products">${cards()}</div>${state.products.length||!isAdmin()?'':'<button class="wide spaced" data-tab="produk">Tambah produk pertama</button>'}</section><section class="checkout card"><div class="row"><h2>Pesanan</h2><button class="secondary" data-action="clear">Kosongkan</button></div><div id="cart">${cartHTML()}</div><label>Diskon nominal (Rp)<input id="discount" inputmode="numeric" type="number" min="0" step="1" value="${discount}"></label><div class="row line"><span>Subtotal</span><strong id="subtotal">${money(subtotal())}</strong></div><div class="row line"><strong>Total bayar</strong><span class="amount" id="total">${money(total())}</span></div><div class="payment-heading"><span class="eyebrow">PEMBAYARAN</span><span>Pilih cara bayar</span></div><div class="payment-methods"><button class="${paymentMethod==='CASH'?'selected':'secondary'}" data-method="CASH" aria-pressed="${paymentMethod==='CASH'}"><span aria-hidden="true">💵</span> Tunai</button><button class="${paymentMethod==='QRIS'?'selected':'secondary'}" data-method="QRIS" aria-pressed="${paymentMethod==='QRIS'}"><span aria-hidden="true">▦</span> QRIS</button></div>${paymentMethod==='CASH'?`<label>Uang tunai diterima (Rp)<input id="paid" inputmode="numeric" type="number" min="0" step="1" placeholder="Contoh: 20000" value="${esc(paid)}"></label><div class="cash-presets">${[10000,20000,50000,100000].map(n=>`<button class="secondary" data-action="cashAmount" data-amount="${n}">${n/1000}k</button>`).join('')}</div><button class="text-button exact-money" data-action="exactAmount">Uang pas · ${money(total())}</button><div class="row change-row"><span>Kembalian</span><strong id="change">${money(Math.max(0,Number(paid)-total()))}</strong></div>`:`<div class="qris-panel"><div class="qris-symbol" aria-hidden="true">▦</div><strong>Scan QRIS toko</strong><p>Pastikan pembayaran <b id="qris-amount">${money(total())}</b> sudah diterima. Pencatatan dikonfirmasi manual.</p><label class="check-row"><input id="qris-confirmed" type="checkbox" ${qrisConfirmed?'checked':''}><span>Pembayaran QRIS sudah diterima</span></label></div>`}<div class="receipt-choice"><span>Nota pelanggan</span><div class="receipt-options"><button class="${printReceipt?'':'secondary'}" data-print-choice="yes" aria-pressed="${printReceipt}">Cetak nota</button><button class="${printReceipt?'secondary':''}" data-print-choice="no" aria-pressed="${!printReceipt}">Tanpa nota</button></div><small>Printer disiapkan oleh admin.</small></div><button class="wide spaced" data-action="pay" ${cart.length?'':'disabled'}>Bayar & simpan</button><p class="muted">Transaksi tetap tersimpan meskipun tanpa nota.</p></section></div>${cart.length?`<div class="quick-cart"><button class="wide" data-action="viewCart"><span>${cart.reduce((n,l)=>n+l.qty,0)} item · Lihat pesanan</span><strong>${money(total())}</strong></button></div>`:''}`;
 }
 function renderProducts(){
  $('#content').innerHTML=`<div class="row"><p class="muted">Harga dan stok tersimpan di HP ini.</p><button data-action="newProduct">+ Produk</button></div>${state.products.map(p=>`<section class="card row"><div><h3>${esc(p.name)}</h3><span class="muted">${esc(p.category)} · Stok ${p.stock}</span><p>${money(p.price)} <span class="muted">/ HPP ${money(p.cost)}</span></p></div><button class="secondary" data-action="editProduct" data-id="${p.id}">Ubah</button></section>`).join('')||'<div class="card empty">Tambahkan produk, harga, HPP, dan stok awal.</div>'}`;
@@ -57,9 +57,11 @@ function renderHistory(){
  $('#content').innerHTML='<p class="muted">500 transaksi terakhir. Seluruh transaksi tetap masuk laporan dan backup.</p>'+rows.map(s=>`<button class="card wide row secondary" data-action="sale" data-id="${s.id}"><span>${esc(s.invoice)}<br><span class="muted">${esc(s.created_at.replace('T',' '))}${s.cancelled?' · DIBATALKAN':''}</span></span><strong>${money(s.total)}</strong></button>`).join('');
  if(!rows.length)$('#content').innerHTML+='<div class="card empty">Belum ada transaksi.</div>';
 }
+function printSale(id){try{api('print',{id});notify('Menghubungkan printer. Transaksi sudah tersimpan.');}catch(e){notify(e.message+' Transaksi tetap tersimpan.');}}
 function showSale(id){
- const s=api('sale',{id});
- modal(s.cancelled?'Transaksi dibatalkan':'Transaksi tersimpan',`<p><strong>${esc(s.invoice)}</strong></p><p>Total ${money(s.total)} · Kembali ${money(Math.max(0,s.paid-s.total))}</p>${s.payment_method==='CREDIT'?`<p class="hint">Kasbon atas nama ${esc(s.customer)}. Catatan lama tetap tersimpan dalam backup.</p>`:''}${s.cancelled?'<p class="error">Stok transaksi ini sudah dikembalikan.</p>':''}<pre>${esc(s.receipt)}</pre><label>Ukuran kertas<select id="paper"><option value="32">58 mm (32 karakter)</option><option value="48">80 mm (48 karakter)</option></select></label><button class="secondary wide" data-action="choosePrinter">Pilih printer Bluetooth</button><button class="wide" data-action="print" data-id="${s.id}">Cetak struk Bluetooth</button>${s.cancelled||!isAdmin()?'':`<button class="danger wide" data-action="cancel" data-id="${s.id}">Batalkan transaksi & kembalikan stok</button>`}`);
+ const s=api('sale',{id}),wide=state.settings.paper==='48';
+ const receipt=wide&&s.receipt_wide?s.receipt_wide:s.receipt;
+ modal(s.cancelled?'Transaksi dibatalkan':'Transaksi tersimpan',`<div class="sale-success"><span aria-hidden="true">✓</span><strong>${money(s.total)}</strong><p>${esc(s.invoice)} · ${s.payment_method==='QRIS'?'QRIS':s.payment_method==='CREDIT'?'Catatan lama':'Tunai'}</p></div>${s.payment_method==='QRIS'?'<p class="hint">QRIS dikonfirmasi kasir. Tidak ada kembalian.</p>':`<p>Total ${money(s.total)} · Kembali ${money(Math.max(0,s.paid-s.total))}</p>`}${s.cancelled?'<p class="error">Stok transaksi ini sudah dikembalikan.</p>':''}<pre class="receipt-paper" data-paper="${wide?'48':'32'}">${esc(receipt)}</pre><div class="receipt-actions"><button class="wide" data-action="print" data-id="${s.id}">Cetak nota</button><button class="secondary wide" data-action="close">Selesai tanpa cetak</button></div>${isAdmin()?'<button class="text-button" data-action="printerSettings">Pengaturan printer & struk</button>':''}${s.cancelled||!isAdmin()?'':`<button class="danger wide" data-action="cancel" data-id="${s.id}">Batalkan transaksi & kembalikan stok</button>`}`);
 }
 const expenseCategories={BAHAN_BAKU:'Bahan baku',OPERASIONAL:'Operasional',TRANSPORTASI:'Transportasi',PERALATAN:'Peralatan',LAINNYA:'Lainnya'};
 function renderExpenses(){
@@ -79,11 +81,15 @@ function renderReport(date=day()){
  const r=api('report',{day:date});
  $('#content').innerHTML=`<label>Tanggal (WIB)<input id="report-day" type="date" value="${esc(date)}"></label><div class="stats">${[['Omzet',money(r.revenue)],['Transaksi',r.count],['Produk terjual',r.qty],['Laba kotor',money(r.profit)],['Pengeluaran',money(r.expenses)],['Laba kotor − pengeluaran',money(r.profitAfterExpenses)]].map(([l,v])=>`<section class="card"><span class="muted">${l}</span><strong>${v}</strong></section>`).join('')}</div><p class="muted">Laba kotor = penjualan setelah diskon dikurangi HPP saat transaksi. Pengeluaran dicatat terpisah dan dikurangkan dari laba kotor pada ringkasan. Omzet dapat memuat kasbon dari versi lama; bukan laporan kas masuk. Transaksi batal tidak dihitung.</p>`;
 }
+function receiptDraft(){return Object.fromEntries(new FormData($('#settings-form')));}
+function updateReceiptPreview(){
+ try{const draft=receiptDraft();const preview=api('previewReceipt',{settings:draft,method:$('#preview-method').value});$('#receipt-preview').textContent=preview;$('#receipt-preview').dataset.paper=draft.paper;$('#preview-error').hidden=true;}
+ catch(e){$('#preview-error').textContent=e.message;$('#preview-error').hidden=false;}
+}
 function renderSettings(){
  const s=state.settings;
- $('#content').innerHTML=`<section class="card"><h2>Identitas toko</h2><form id="settings-form">${[['name','Nama toko'],['address','Alamat'],['phone','Nomor pemesanan'],['footer','Pesan bawah struk']].map(([n,l])=>`<label>${l}<input name="${n}" maxlength="160" ${n==='name'?'required':''} value="${esc(s[n])}"></label>`).join('')}<button type="submit" class="wide">Simpan identitas</button></form></section><section class="card"><h2>Printer Bluetooth</h2><p id="printer-name">${esc(state.printerName)}</p><p class="muted">Pasangkan printer di pengaturan Bluetooth HP. Mendukung printer ESC/POS Bluetooth Classic/SPP; BLE dan printer khusus merek belum didukung.</p><button data-action="choosePrinter">Pilih printer</button> <button class="secondary" data-action="testPrint">Tes cetak</button></section><section class="card"><h2>Backup data</h2><p class="hint">Data tersimpan hanya di HP ini. Simpan backup rutin ke kartu memori, perangkat lain, atau penyimpanan cloud. Menghapus data aplikasi akan menghapus catatan kasir.</p><button class="wide" data-action="backup">Simpan backup (.json)</button><button class="danger wide spaced" data-action="restore">Pulihkan dari backup</button><p class="muted">Pemulihan mengganti data saat ini. Backup mencakup produk, stok, transaksi, dan identitas toko; keranjang serta pilihan printer tidak disertakan.</p></section><p class="muted">JusMerdeka Offline 2.2 · Satu HP kasir · Tunai · Belum tersinkron dengan website. Menu awal berasal dari daftar GitHub.</p>`;
- if(!isAdmin()){$('#settings-form').closest('section').remove();$('[data-action=restore]').closest('section').remove();}
-
+ $('#content').innerHTML=`<div class="section-intro"><span class="eyebrow">IDENTITAS TOKO</span><h2>Buat nota khas tokomu</h2><p class="muted">Ubah isi struk, lihat preview, lalu simpan. Perubahan berlaku untuk transaksi baru.</p></div><div class="receipt-editor"><section class="card"><h3>Edit struk</h3><form id="settings-form">${[['name','Nama toko'],['address','Alamat'],['phone','Nomor pemesanan'],['header','Pesan atas struk'],['footer','Pesan bawah struk']].map(([n,l])=>`<label>${l}<input name="${n}" maxlength="160" ${n==='name'?'required':''} value="${esc(s[n]||'')}"></label>`).join('')}<label>Ukuran kertas<select name="paper"><option value="32" ${s.paper!=='48'?'selected':''}>58 mm · 32 karakter</option><option value="48" ${s.paper==='48'?'selected':''}>80 mm · 48 karakter</option></select></label><button type="submit" class="wide">Simpan pengaturan struk</button></form></section><section class="card preview-panel"><div class="row"><h3>Preview struk</h3><span class="badge">Contoh</span></div><label>Contoh pembayaran<select id="preview-method"><option value="CASH">Tunai</option><option value="QRIS">QRIS</option></select></label><div class="receipt-stage"><pre id="receipt-preview" class="receipt-paper"></pre></div><p id="preview-error" class="error" hidden></p><p class="muted">Preview memakai format cetak yang sama. Printer perlu diuji untuk memastikan lebar kertasnya.</p></section></div><section class="card"><div class="printer-heading"><span class="settings-icon" aria-hidden="true">▤</span><div><h2>Printer Bluetooth</h2><p id="printer-name">${esc(state.printerName)}</p></div></div><p class="muted">Hanya admin yang bisa memilih dan menguji printer. Kasir mencetak ke printer yang sudah dipilih.</p><div class="row wrap"><button data-action="choosePrinter">Pilih printer</button><button class="secondary" data-action="testPrint">Tes cetak</button></div><p class="muted">Pasangkan printer ESC/POS Bluetooth Classic/SPP lewat pengaturan HP.</p></section><section class="card"><h2>Backup data</h2><p class="hint">Simpan backup rutin di luar HP kasir agar catatan tetap tersedia saat pindah perangkat.</p><button class="wide" data-action="backup">Simpan backup (.json)</button><button class="danger wide spaced" data-action="restore">Pulihkan dari backup</button></section><p class="muted">JusMerdeka 2.3 · Satu HP · Tunai & QRIS manual</p>`;
+ updateReceiptPreview();
 }
 function add(id){
  const p=product(id);if(!p)throw Error('Produk tidak tersedia.');
@@ -96,19 +102,19 @@ function pay(){
  const amount=Number(paid);
  if(!Number.isSafeInteger(discount)||discount<0||discount>subtotal())throw Error('Diskon harus angka bulat dan tidak melebihi subtotal.');
  if(paymentMethod==='CASH'&&(paid===''||!Number.isSafeInteger(amount)||amount<total()||amount>100000000000000))throw Error('Masukkan uang tunai yang cukup dalam rupiah bulat.');
- if(paymentMethod==='CREDIT'&&(!customer.trim()||total()===0))throw Error('Isi nama pelanggan dan pastikan total kasbon lebih dari 0.');
+ if(paymentMethod==='QRIS'&&!qrisConfirmed)throw Error('Pastikan pembayaran QRIS sudah diterima, lalu centang konfirmasi.');
  const requestId='sale-'+Date.now()+'-'+Array.from(crypto.getRandomValues(new Uint32Array(4)),n=>n.toString(16)).join('-');
- const payload={requestId,items:cart.map(x=>({...x})),discount,paid:paymentMethod==='CREDIT'?0:amount,paymentMethod,customer,phone};
+ const payload={requestId,items:cart.map(x=>({...x})),discount,paid:paymentMethod==='QRIS'?total():amount,paymentMethod,qrisConfirmed,printReceipt};
  localStorage.setItem('jm-pending',JSON.stringify(payload)); // Durable before native checkout; retry uses the exact same request id.
- completePayment(payload);
+ completePayment(payload,true);
 }
-function completePayment(payload){
+function completePayment(payload,autoPrint=false){
  paying=true;modal('Menyimpan transaksi','<p>Tunggu sebentar…</p>');
  setTimeout(()=>{
    try{
      const sale=api('checkout',payload);
      // Save the cleared cart before dropping recovery information.
-     cart=[];discount=0;paid='';paymentMethod='CASH';customer='';phone='';persist();localStorage.removeItem('jm-pending');load();tab='kasir';render();showSale(sale.id);
+     cart=[];discount=0;paid='';paymentMethod='CASH';customer='';phone='';qrisConfirmed=false;printReceipt=false;persist();localStorage.removeItem('jm-pending');load();tab='kasir';render();showSale(sale.id);if(autoPrint&&payload.printReceipt)printSale(sale.id);
    }catch(e){
      // Keep the pending request after any uncertain failure; it can be retried safely.
      modal('Periksa pembayaran',`<p class="error">${esc(e.message)}</p><p>Gunakan Cek ulang untuk memastikan transaksi tersimpan. Jika ditolak karena stok atau uang kurang, kembali dan ubah pesanan.</p><button class="wide" data-action="retryPayment">Cek ulang pembayaran</button><button class="secondary wide" data-action="discardPending">Kembali ke pesanan</button>`);
@@ -124,6 +130,8 @@ document.addEventListener('click',event=>{
   if(b.dataset.loginRole){loginRole=b.dataset.loginRole;renderLogin();return;}
   if(b.dataset.action==='logout'){api('logout');role='';loginRole='';state={products:[],settings:{}};cart=[];discount=0;paid='';tab='kasir';renderLogin();return;}
   if(!role)return;
+  if(b.dataset.method){paymentMethod=b.dataset.method;qrisConfirmed=false;persist();renderPOS();return;}
+  if(b.dataset.printChoice){printReceipt=b.dataset.printChoice==='yes';persist();renderPOS();return;}
   if(b.dataset.category!==undefined){selectedCategory=b.dataset.category;renderPOS();return;}
   if((localStorage.getItem('jm-pending')||localStorage.getItem('jm-expense-pending'))&&!['retryPayment','discardPending','retryExpense','returnExpense'].includes(b.dataset.action)){pendingDialog();return;}
   if(b.dataset.tab){navigate(b.dataset.tab);return;}
@@ -143,12 +151,15 @@ document.addEventListener('click',event=>{
    case 'returnExpense':completeExpense(JSON.parse(localStorage.getItem('jm-expense-pending')),true);break;
    case 'cancelExpense':if(confirm('Batalkan catatan pengeluaran ini?')){api('cancelExpense',{id});renderExpenses();}break;
    case 'cancel':if(confirm('Batalkan transaksi ini dan kembalikan stok?')){api('cancel',{id});load();render();showSale(id);}break;
-   case 'print':api('print',{id,columns:Number($('#paper').value)});notify('Menghubungkan printer… Transaksi sudah tersimpan.');break;
+   case 'print':printSale(id);break;
+   case 'printerSettings':close();navigate('pengaturan');break;
+   case 'cashAmount':paid=String(b.dataset.amount);$('#paid').value=paid;$('#paid').dispatchEvent(new Event('input',{bubbles:true}));break;
+   case 'exactAmount':paid=String(total());$('#paid').value=paid;$('#paid').dispatchEvent(new Event('input',{bubbles:true}));break;
    case 'retryPayment':{const p=localStorage.getItem('jm-pending');if(p)completePayment(JSON.parse(p));break;}
    case 'discardPending':{
      // Resolve the idempotency key before allowing a new payment. A saved transaction must be shown, never silently discarded.
      const p=JSON.parse(localStorage.getItem('jm-pending'));
-     try{const saved=api('checkout',p);cart=[];discount=0;paid='';paymentMethod='CASH';customer='';phone='';persist();localStorage.removeItem('jm-pending');load();render();showSale(saved.id);}
+     try{const saved=api('checkout',p);cart=[];discount=0;paid='';paymentMethod='CASH';customer='';phone='';qrisConfirmed=false;printReceipt=false;persist();localStorage.removeItem('jm-pending');load();render();showSale(saved.id);}
      catch(e){if(confirm('Pembayaran ditolak: '+e.message+'\nKembali untuk mengubah pesanan?')){localStorage.removeItem('jm-pending');close();load();render();}}break;
    }
    case 'choosePrinter':case 'testPrint':case 'backup':case 'restore':api(b.dataset.action);break;
@@ -158,17 +169,18 @@ document.addEventListener('click',event=>{
 document.addEventListener('input',event=>{
  const el=event.target;
  try{
+  if(el.closest('#settings-form')){clearTimeout(previewTimer);previewTimer=setTimeout(updateReceiptPreview,150);}
   if(el.id==='login-pin')el.value=el.value.replace(/[^0-9]/g,'');
   if(el.id==='customer'){customer=el.value;persist();}
   if(el.id==='customer-phone'){phone=el.value;persist();}
   if(el.id==='search'){query=el.value;$('#products').innerHTML=cards();}
   if(el.id==='discount'||el.id==='paid'){
    if(el.id==='discount')discount=Number(el.value);else paid=el.value;
-   persist();$('#total').textContent=money(total());if($('.quick-cart strong'))$('.quick-cart strong').textContent=money(total());$('#change').textContent=money(Math.max(0,(paymentMethod==='CREDIT'?0:Math.max(0,Number(paid)-total()))));
+   persist();$('#total').textContent=money(total());if($('.quick-cart strong'))$('.quick-cart strong').textContent=money(total());if($('#change'))$('#change').textContent=money(Math.max(0,Number(paid)-total()));if(paymentMethod==='QRIS'){qrisConfirmed=false;if($('#qris-confirmed'))$('#qris-confirmed').checked=false;if($('#qris-amount'))$('#qris-amount').textContent=money(total());}
   }
  }catch(e){notify(e.message);}
 });
-document.addEventListener('change',event=>{if(event.target.id==='expense-filter'){expenseDate=event.target.value;renderExpenses();return;}if(event.target.id==='report-day')try{renderReport(event.target.value);}catch(e){notify(e.message);}});
+document.addEventListener('change',event=>{if(event.target.id==='qris-confirmed'){qrisConfirmed=event.target.checked;return;}if(event.target.id==='preview-method'||event.target.closest('#settings-form')){updateReceiptPreview();return;}if(event.target.id==='expense-filter'){expenseDate=event.target.value;renderExpenses();return;}if(event.target.id==='report-day')try{renderReport(event.target.value);}catch(e){notify(e.message);}});
 document.addEventListener('submit',event=>{
  event.preventDefault();try{
   const f=event.target;const data=Object.fromEntries(new FormData(f));
@@ -179,7 +191,7 @@ document.addEventListener('submit',event=>{
   }
   if(f.matches('#expense-form')){const amount=Number(data.amount);if(!Number.isSafeInteger(amount)||amount<1)throw Error('Isi nominal dalam rupiah bulat.');const payload={...data,amount,request_id:'expense-'+Date.now()+'-'+Array.from(crypto.getRandomValues(new Uint32Array(4)),n=>n.toString(16)).join('-')};localStorage.setItem('jm-expense-pending',JSON.stringify(payload));completeExpense(payload);return;}
   if(f.matches('#product-form')){for(const key of ['id','price','cost','stock']){data[key]=Number(data[key]);if(!Number.isSafeInteger(data[key]))throw Error('Gunakan angka rupiah atau stok bulat.');}api('saveProduct',{product:data});close();load();render();notify('Produk disimpan.');}
-  if(f.matches('#settings-form')){api('saveSettings',{settings:data});load();notify('Identitas toko disimpan.');}
+  if(f.matches('#settings-form')){api('saveSettings',{settings:data});load();updateReceiptPreview();notify('Pengaturan struk disimpan.');}
  }catch(e){notify(e.message);}
 });
 try{role=api('session').role;if(role){load();restoreCart();}render();if(role&&(localStorage.getItem('jm-pending')||localStorage.getItem('jm-expense-pending')))pendingDialog();}

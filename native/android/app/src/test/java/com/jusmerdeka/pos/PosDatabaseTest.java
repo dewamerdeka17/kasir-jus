@@ -115,6 +115,38 @@ public class PosDatabaseTest {
         JSONObject old=new JSONObject(db.backup()).put("version",1); old.remove("debts"); old.remove("debtPayments");
         db.restore(old.toString()); assertEquals(4,stock()); assertEquals(1,db.history().length());
     }
+    @Test public void qrisRequiresConfirmationAndNeverCreatesChange() throws Exception {
+        JSONObject input=order("qris-confirm-request-001",2,999999).put("paymentMethod","QRIS");
+        try { db.checkoutCash(input); fail("Unconfirmed QRIS accepted"); } catch(IllegalArgumentException expected) {}
+        assertEquals(5,stock()); assertEquals(0,db.history().length());
+        JSONObject sale=db.checkoutCash(input.put("qrisConfirmed",true));
+        assertEquals(19000,sale.getLong("paid")); assertEquals("QRIS",db.sale(sale.getLong("id")).getString("payment_method"));
+        assertTrue(sale.getString("receipt").contains("Metode: QRIS")); assertFalse(sale.getString("receipt").contains("Kembali:"));
+        db.checkoutCash(input); assertEquals(3,stock()); assertEquals(1,db.history().length());
+        assertEquals("QRIS",db.history().getJSONObject(0).getString("payment_method"));
+    }
+    @Test public void receiptEditorPreviewMatchesFormatAndSnapshotsSurviveEditsAndBackup() throws Exception {
+        JSONObject shop=db.settings().put("header","SEGAR SETIAP HARI").put("footer","Sampai jumpa!").put("paper","48");
+        db.saveSettings(shop);
+        String preview=Receipt.preview(PosDatabase.receiptSettings(shop),"QRIS");
+        assertTrue(preview.contains("SEGAR SETIAP HARI")); assertTrue(preview.contains("Sampai jumpa!")); assertTrue(preview.contains("QRIS"));
+        for(String line:preview.split("\n")) assertTrue(line.length()<=48);
+        JSONObject sale=db.checkoutCash(order("receipt-snapshot-request-001",1,10000));
+        String oldReceipt=db.sale(sale.getLong("id")).getString("receipt_wide");
+        db.saveSettings(shop.put("header","HEADER BARU"));
+        assertEquals(oldReceipt,db.sale(sale.getLong("id")).getString("receipt_wide"));
+        String backup=db.backup();db.restore(backup);
+        assertEquals(oldReceipt,db.sale(sale.getLong("id")).getString("receipt_wide"));
+        assertEquals("HEADER BARU",db.settings().getString("header"));
+        try { db.saveSettings(shop.put("paper","99")); fail("Unsupported width accepted"); } catch(IllegalArgumentException expected) {}
+        assertEquals("48",db.settings().getString("paper"));
+    }
+    @Test public void versionThreeBackupWithNoPaymentColumnsStillRestores() throws Exception {
+        db.checkoutCash(order("old-column-request-001",1,10000));
+        JSONObject old=new JSONObject(db.backup()).put("version",3);
+        JSONObject sale=old.getJSONArray("sales").getJSONObject(0);sale.remove("payment_method");sale.remove("receipt_wide");
+        db.restore(old.toString()); assertEquals("CASH",db.history().getJSONObject(0).getString("payment_method")); assertEquals(4,stock());
+    }
     private String backupLedger(String raw) throws Exception {
         JSONObject json=new JSONObject(raw); json.remove("exportedAt"); return json.toString();
     }

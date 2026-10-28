@@ -175,11 +175,14 @@ public class MainActivity extends Activity {
                     case "cancel": db.cancel(PosDatabase.number(p,"id",1,Long.MAX_VALUE)); result=true; break;
                     case "report": result=db.report(p.getString("day")); break;
                     case "saveSettings": db.saveSettings(p.getJSONObject("settings")); result=true; break;
+                    case "previewReceipt": result=Receipt.preview(PosDatabase.receiptSettings(p.getJSONObject("settings")),p.optString("method","CASH")); break;
                     case "choosePrinter": runOnUiThread(()->choosePrinter()); result=true; break;
                     case "print": {
                         JSONObject sale=db.sale(PosDatabase.number(p,"id",1,Long.MAX_VALUE));
-                        int cols=(int)PosDatabase.number(p,"columns",32,48);
-                        String receipt=cols==32&&sale.getInt("cancelled")==0?sale.getString("receipt"):Receipt.format(sale,db.settings(),cols);
+                        int cols=Integer.parseInt(db.settings().optString("paper","32"));
+                        String receipt=cols==32?sale.getString("receipt"):sale.optString("receipt_wide","");
+                        if(receipt.isEmpty()) receipt=Receipt.format(sale,db.settings(),cols);
+                        if(sale.getInt("cancelled")==1) receipt="*** DIBATALKAN ***\n"+receipt;
                         print(receipt); result=true; break;
                     }
                     case "testPrint": print("JusMerdeka\nTES PRINTER BLUETOOTH\n12345678901234567890123456789012\nJika terbaca, printer siap.\n"); result=true; break;

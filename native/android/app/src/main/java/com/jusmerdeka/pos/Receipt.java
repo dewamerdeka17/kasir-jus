@@ -19,6 +19,7 @@ public final class Receipt {
         if(columns!=32&&columns!=48) throw new IllegalArgumentException("Lebar struk tidak valid.");
         StringBuilder out=new StringBuilder();
         for(String key:new String[]{"name","address","phone"}) line(out,shop.optString(key),columns);
+        line(out,shop.optString("header"),columns);
         line(out,sale.getString("invoice"),columns); line(out,sale.getString("created_at"),columns);
         String separator=new String(new char[columns]).replace('\0','-'); line(out,separator,columns);
         JSONArray items=sale.getJSONArray("items");
@@ -31,11 +32,23 @@ public final class Receipt {
         if("CREDIT".equals(sale.optString("payment_method"))) {
             line(out,"KASBON - BELUM DIBAYAR SAAT BELI",columns); line(out,"Pelanggan: "+sale.optString("customer"),columns);
             line(out,"Kasbon awal: "+money(sale.getLong("total")),columns);
+        } else if("QRIS".equals(sale.optString("payment_method"))) {
+            line(out,"Metode: QRIS",columns); line(out,"Dibayar: "+money(sale.getLong("total")),columns);
+            line(out,"Dikonfirmasi kasir (manual)",columns);
         } else {
+            line(out,"Metode: TUNAI",columns);
             line(out,"Tunai: "+money(sale.getLong("paid")),columns); line(out,"Kembali: "+money(sale.getLong("paid")-sale.getLong("total")),columns);
         }
         if(sale.optInt("cancelled")==1) line(out,"*** DIBATALKAN ***",columns);
         line(out,shop.optString("footer"),columns); return out.toString();
+    }
+    public static String preview(JSONObject settings,String method) throws Exception {
+        if(!"QRIS".equals(method)&&!"CASH".equals(method)) throw new IllegalArgumentException("Metode contoh tidak valid.");
+        JSONObject sale=new JSONObject().put("invoice","CONTOH-STRUK").put("created_at","2026-10-28T10:00:00+07:00")
+            .put("subtotal",20000).put("discount",1000).put("total",19000).put("paid","QRIS".equals(method)?19000:20000)
+            .put("payment_method",method).put("items",new JSONArray().put(new JSONObject().put("name","Jus Semangka").put("qty",1).put("price",8000))
+                .put(new JSONObject().put("name","Jus Mangga").put("qty",1).put("price",12000)));
+        return format(sale,settings,Integer.parseInt(settings.optString("paper","32")));
     }
     public static byte[] bytes(String text) {
         return ("\u001b@"+text+"\n\n\n").getBytes(StandardCharsets.US_ASCII);

@@ -18,18 +18,28 @@ import java.util.TimeZone;
 public final class PosDatabase extends SQLiteOpenHelper {
     private static final long MAX_MONEY = 100_000_000_000_000L;
     private final Context context;
-    public PosDatabase(Context context) { super(context, "jus-offline.db", null, 4); this.context=context.getApplicationContext(); }
+    public PosDatabase(Context context) { super(context, "jus-offline.db", null, 5); this.context=context.getApplicationContext(); }
 
     @Override public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE products (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, category TEXT NOT NULL, price INTEGER NOT NULL CHECK(price>=0), cost INTEGER NOT NULL CHECK(cost>=0), stock INTEGER NOT NULL CHECK(stock>=0), active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)))");
-        db.execSQL("CREATE TABLE sales (id INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL UNIQUE, invoice TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, subtotal INTEGER NOT NULL, discount INTEGER NOT NULL, total INTEGER NOT NULL, paid INTEGER NOT NULL, cancelled INTEGER NOT NULL DEFAULT 0 CHECK(cancelled IN (0,1)), receipt TEXT NOT NULL, items TEXT NOT NULL)");
+        db.execSQL("CREATE TABLE sales (id INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL UNIQUE, invoice TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL, subtotal INTEGER NOT NULL, discount INTEGER NOT NULL, total INTEGER NOT NULL, paid INTEGER NOT NULL, cancelled INTEGER NOT NULL DEFAULT 0 CHECK(cancelled IN (0,1)), receipt TEXT NOT NULL, items TEXT NOT NULL, payment_method TEXT NOT NULL DEFAULT 'CASH', receipt_wide TEXT NOT NULL DEFAULT '')");
         db.execSQL("CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
         db.execSQL("INSERT INTO settings VALUES ('name','JusMerdeka'), ('address',''), ('phone',''), ('footer','Terima kasih!')");
         createDebtTables(db); createExpenseTable(db); seedCatalog(db);
     }
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
-        if(oldVersion>=1&&newVersion==4) { if(oldVersion<2) seedCatalog(db); createDebtTables(db); createExpenseTable(db); return; }
+        if(oldVersion>=1&&newVersion==5) {
+            if(oldVersion<2) seedCatalog(db); createDebtTables(db); createExpenseTable(db);
+            addSaleColumn(db,"payment_method","TEXT NOT NULL DEFAULT 'CASH'");
+            addSaleColumn(db,"receipt_wide","TEXT NOT NULL DEFAULT ''"); return;
+        }
         throw new IllegalStateException("Versi database belum didukung. Jangan hapus data aplikasi.");
+    }
+    private static void addSaleColumn(SQLiteDatabase db,String name,String definition) {
+        try(Cursor c=db.rawQuery("PRAGMA table_info(sales)",null)) {
+            while(c.moveToNext()) if(name.equals(c.getString(c.getColumnIndexOrThrow("name")))) return;
+        }
+        db.execSQL("ALTER TABLE sales ADD COLUMN "+name+" "+definition);
     }
     private static void createDebtTables(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE IF NOT EXISTS debts (sale_id INTEGER PRIMARY KEY, customer TEXT NOT NULL, phone TEXT NOT NULL, total INTEGER NOT NULL CHECK(total>0), paid INTEGER NOT NULL DEFAULT 0 CHECK(paid>=0 AND paid<=total), created_at TEXT NOT NULL)");
@@ -39,10 +49,10 @@ public final class PosDatabase extends SQLiteOpenHelper {
         db.execSQL("CREATE TABLE IF NOT EXISTS expenses (id INTEGER PRIMARY KEY AUTOINCREMENT, request_id TEXT NOT NULL UNIQUE, expense_date TEXT NOT NULL, category TEXT NOT NULL, amount INTEGER NOT NULL CHECK(amount>0), description TEXT NOT NULL, created_by TEXT NOT NULL, created_at TEXT NOT NULL, cancelled INTEGER NOT NULL DEFAULT 0 CHECK(cancelled IN (0,1)))");
     }
     public synchronized JSONObject checkoutCash(JSONObject input) throws Exception {
-        if(!"CASH".equals(input.optString("paymentMethod","CASH"))) {
+        if(!java.util.Arrays.asList("CASH","QRIS").contains(input.optString("paymentMethod","CASH"))) {
             JSONArray previous=rows("SELECT id FROM sales WHERE request_id=?",text(input,"requestId",100));
             if(previous.length()>0) return sale(previous.getJSONObject(0).getLong("id"));
-            throw new IllegalArgumentException("Kasbon sudah dihapus. Pilih pembayaran tunai.");
+            throw new IllegalArgumentException("Kasbon sudah dihapus. Pilih Tunai atau QRIS.");
         }
         return checkout(input);
     }
@@ -130,10 +140,20 @@ public final class PosDatabase extends SQLiteOpenHelper {
         for (int i=0; i<rows.length(); i++) result.put(rows.getJSONObject(i).getString("key"), rows.getJSONObject(i).getString("value"));
         return result;
     }
+    public static JSONObject receiptSettings(JSONObject input) throws Exception {
+        JSONObject result=new JSONObject(input.toString());
+        if(!result.has("header")) result.put("header","");
+        if(!result.has("paper")) result.put("paper","32");
+        for(String key:new String[]{"name","address","phone","header","footer"}) result.put(key,text(result,key,160));
+        if(text(result,"name",160).isEmpty()) throw new IllegalArgumentException("Nama toko wajib diisi.");
+        if(!java.util.Arrays.asList("32","48").contains(result.getString("paper"))) throw new IllegalArgumentException("Ukuran kertas tidak valid.");
+        return result;
+    }
     public synchronized void saveSettings(JSONObject input) throws Exception {
+        input=receiptSettings(input);
         SQLiteDatabase db = getWritableDatabase(); db.beginTransaction();
         try {
-            for (String key : new String[]{"name", "address", "phone", "footer"}) {
+            for (String key : new String[]{"name", "address", "phone", "header", "footer", "paper"}) {
                 String value = text(input, key, 160);
                 if (key.equals("name") && value.isEmpty()) throw new IllegalArgumentException("Nama toko wajib diisi.");
                 ContentValues v = new ContentValues(); v.put("key",key); v.put("value",value);
@@ -191,27 +211,29 @@ public final class PosDatabase extends SQLiteOpenHelper {
                     .put("qty",qty).put("price",p.getLong("price")).put("cost",p.getLong("cost")));
             }
             long discount=number(input,"discount",0,subtotal), total=subtotal-discount;
-            boolean credit="CREDIT".equals(input.optString("paymentMethod","CASH"));
-            if(!credit&&!"CASH".equals(input.optString("paymentMethod","CASH"))) throw new IllegalArgumentException("Metode pembayaran tidak valid.");
+            String method=input.optString("paymentMethod","CASH");
+            boolean credit="CREDIT".equals(method),qris="QRIS".equals(method);
+            if(qris&&!Boolean.TRUE.equals(input.opt("qrisConfirmed"))) throw new IllegalArgumentException("Konfirmasikan pembayaran QRIS sudah diterima.");
+            if(!credit&&!qris&&!"CASH".equals(method)) throw new IllegalArgumentException("Metode pembayaran tidak valid.");
             String customer=credit?text(input,"customer",100):"", phone=credit?text(input,"phone",40):"";
             if(credit&&(customer.isEmpty()||total==0)) throw new IllegalArgumentException("Nama pelanggan dan total kasbon wajib diisi.");
-            long paid=credit?number(input,"paid",0,0):number(input,"paid",total,MAX_MONEY);
+            long paid=credit?number(input,"paid",0,0):qris?total:number(input,"paid",total,MAX_MONEY);
             String created=timestamp();
             ContentValues v=new ContentValues();
             v.put("request_id",requestId); v.put("invoice","pending-"+requestId); v.put("created_at",created);
             v.put("subtotal",subtotal); v.put("discount",discount); v.put("total",total); v.put("paid",paid);
-            v.put("items",snapshot.toString()); v.put("receipt","");
+            v.put("items",snapshot.toString()); v.put("receipt",""); v.put("payment_method",method);
             long id=db.insertOrThrow("sales",null,v);
             String invoice="JM-"+created.substring(0,10).replace("-","")+"-"+String.format(Locale.US,"%06d",id);
             JSONObject sale=new JSONObject().put("id",id).put("invoice",invoice).put("created_at",created)
                 .put("subtotal",subtotal).put("discount",discount).put("total",total).put("paid",paid).put("items",snapshot);
-            sale.put("payment_method",credit?"CREDIT":"CASH").put("customer",customer);
+            sale.put("payment_method",method).put("customer",customer);
             if(credit) {
                 ContentValues debt=new ContentValues(); debt.put("sale_id",id); debt.put("customer",customer); debt.put("phone",phone);
                 debt.put("total",total); debt.put("paid",0); debt.put("created_at",created); db.insertOrThrow("debts",null,debt);
             }
             String receipt=Receipt.format(sale,settings(),32);
-            v=new ContentValues(); v.put("invoice",invoice); v.put("receipt",receipt);
+            v=new ContentValues(); v.put("invoice",invoice); v.put("receipt",receipt); v.put("receipt_wide",Receipt.format(sale,settings(),48));
             db.update("sales",v,"id=?",new String[]{""+id});
             for(Map.Entry<Long,Long> item:quantities.entrySet())
                 db.execSQL("UPDATE products SET stock=stock-? WHERE id=? AND stock>=?",new Object[]{item.getValue(),item.getKey(),item.getValue()});
@@ -219,14 +241,14 @@ public final class PosDatabase extends SQLiteOpenHelper {
         } finally { db.endTransaction(); }
     }
     public synchronized JSONArray history() throws Exception {
-        return rows("SELECT s.id,s.invoice,s.created_at,s.total,s.paid,s.cancelled,CASE WHEN d.sale_id IS NULL THEN 'CASH' ELSE 'CREDIT' END AS payment_method FROM sales s LEFT JOIN debts d ON d.sale_id=s.id ORDER BY s.id DESC LIMIT 500");
+        return rows("SELECT s.id,s.invoice,s.created_at,s.total,s.paid,s.cancelled,CASE WHEN d.sale_id IS NULL THEN s.payment_method ELSE 'CREDIT' END AS payment_method FROM sales s LEFT JOIN debts d ON d.sale_id=s.id ORDER BY s.id DESC LIMIT 500");
     }
     public synchronized JSONObject sale(long id) throws Exception {
         JSONArray found=rows("SELECT * FROM sales WHERE id=?",""+id);
         if(found.length()!=1) throw new IllegalArgumentException("Transaksi tidak ditemukan.");
         JSONObject sale=found.getJSONObject(0); sale.put("items",new JSONArray(sale.getString("items")));
         JSONArray debt=rows("SELECT * FROM debts WHERE sale_id=?",""+id);
-        sale.put("payment_method",debt.length()>0?"CREDIT":"CASH");
+        if(debt.length()>0) sale.put("payment_method","CREDIT");
         if(debt.length()>0) sale.put("customer",debt.getJSONObject(0).getString("customer"));
         return sale;
     }
@@ -290,7 +312,7 @@ public final class PosDatabase extends SQLiteOpenHelper {
     public synchronized String backup() throws Exception {
         SQLiteDatabase db=getWritableDatabase(); db.beginTransaction();
         try {
-            String data=new JSONObject().put("format","jus-merdeka-offline").put("version",3).put("exportedAt",timestamp())
+            String data=new JSONObject().put("format","jus-merdeka-offline").put("version",4).put("exportedAt",timestamp())
                 .put("products",rows("SELECT * FROM products")).put("sales",rows("SELECT * FROM sales"))
                 .put("debts",rows("SELECT * FROM debts")).put("debtPayments",rows("SELECT * FROM debt_payments")).put("expenses",rows("SELECT * FROM expenses")).put("settings",settings()).toString();
             db.setTransactionSuccessful(); return data;
@@ -299,7 +321,7 @@ public final class PosDatabase extends SQLiteOpenHelper {
     /** Validate the entire document before touching the current ledger. Insert failures roll back. */
     public synchronized void restore(String data) throws Exception {
         JSONObject b=new JSONObject(data);
-        if(!"jus-merdeka-offline".equals(b.getString("format"))||number(b,"version",1,3)<1)
+        if(!"jus-merdeka-offline".equals(b.getString("format"))||number(b,"version",1,4)<1)
             throw new IllegalArgumentException("Bukan backup JusMerdeka offline yang didukung.");
         JSONArray products=b.getJSONArray("products"), sales=b.getJSONArray("sales");
         JSONArray debts=b.getInt("version")>=2?b.getJSONArray("debts"):new JSONArray();
@@ -344,6 +366,12 @@ public final class PosDatabase extends SQLiteOpenHelper {
             if(total!=subtotal-discount) throw new IllegalArgumentException("Total backup tidak cocok.");
             long saleId=s.getLong("id"); saleIds.add(saleId);
             JSONObject d=debtIds.get(saleId);
+            if(!s.has("payment_method")) s.put("payment_method",d==null?"CASH":"CREDIT");
+            if(!s.has("receipt_wide")) s.put("receipt_wide","");
+            String method=s.getString("payment_method");
+            if(!java.util.Arrays.asList("CASH","QRIS","CREDIT").contains(method)||("CREDIT".equals(method)!=(d!=null))) throw new IllegalArgumentException("Metode pembayaran backup tidak cocok.");
+            if("QRIS".equals(method)&&s.getLong("paid")!=total) throw new IllegalArgumentException("Nominal QRIS backup tidak cocok.");
+            text(s,"receipt_wide",20000);
             number(s,"paid",d==null?total:0,d==null?MAX_MONEY:0);
             if(d!=null&&(d.getLong("total")!=total||(s.getInt("cancelled")==1&&d.getLong("paid")!=0))) throw new IllegalArgumentException("Total kasbon backup tidak cocok.");
             JSONArray lines=new JSONArray(s.getString("items")); long sum=0;
@@ -362,7 +390,7 @@ public final class PosDatabase extends SQLiteOpenHelper {
             db.delete("expenses",null,null); db.delete("debt_payments",null,null); db.delete("debts",null,null);
             db.delete("sales",null,null); db.delete("products",null,null);
             for(int i=0;i<products.length();i++) insertRow(db,"products",products.getJSONObject(i),new String[]{"id","name","category","price","cost","stock","active"});
-            for(int i=0;i<sales.length();i++) insertRow(db,"sales",sales.getJSONObject(i),new String[]{"id","request_id","invoice","created_at","subtotal","discount","total","paid","cancelled","receipt","items"});
+            for(int i=0;i<sales.length();i++) insertRow(db,"sales",sales.getJSONObject(i),new String[]{"id","request_id","invoice","created_at","subtotal","discount","total","paid","cancelled","receipt","items","payment_method","receipt_wide"});
             for(int i=0;i<debts.length();i++) insertRow(db,"debts",debts.getJSONObject(i),new String[]{"sale_id","customer","phone","total","paid","created_at"});
             for(int i=0;i<payments.length();i++) insertRow(db,"debt_payments",payments.getJSONObject(i),new String[]{"id","request_id","sale_id","amount","created_at"});
             for(int i=0;i<expenses.length();i++) insertRow(db,"expenses",expenses.getJSONObject(i),new String[]{"id","request_id","expense_date","category","amount","description","created_by","created_at","cancelled"});

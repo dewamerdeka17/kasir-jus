@@ -11,9 +11,9 @@ import java.util.Set;
 /** Local role gate. Session is memory-only; closing the activity requires the PIN again. */
 public final class OfflineSession {
     private static final Set<String> COMMON = new HashSet<>(Arrays.asList(
-        "state", "checkout", "history", "sale", "print", "choosePrinter", "testPrint", "expenses", "addExpense"));
+        "state", "checkout", "history", "sale", "print", "expenses", "addExpense"));
     private static final Set<String> ADMIN = new HashSet<>(Arrays.asList(
-        "cancelExpense", "saveProduct", "archiveProduct", "cancel", "report", "saveSettings", "backup", "restore"));
+        "previewReceipt", "choosePrinter", "testPrint", "cancelExpense", "saveProduct", "archiveProduct", "cancel", "report", "saveSettings", "backup", "restore"));
     private final SharedPreferences attempts;
     private String role="";
 
