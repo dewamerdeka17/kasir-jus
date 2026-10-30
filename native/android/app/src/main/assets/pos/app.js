@@ -3,20 +3,20 @@ const $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const money=n=>'Rp'+Number(n).toLocaleString('id-ID');
 const day=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Jakarta',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
-let printerPickerOpen=false,printerDraft='';
+let printerPickerOpen=false,printerDraft='',printerNotice='';
 let role='',loginRole='',state={products:[],settings:{}},tab='kasir',cart=[],discount=0,paid='',paymentMethod='CASH',customer='',phone='',query='',selectedCategory='',expenseDate=day(),reportMode='DAY',reportAnchor=day(),paying=false,noticeTimer,previewTimer,printReceipt=false,qrisConfirmed=false,confirmedTotal=null;
 function api(action,data={}) {
   if(!window.NativePOS) throw Error('Buka kasir melalui APK Android.');
   const r=JSON.parse(NativePOS.request(JSON.stringify({action,...data})));
   if(!r.ok) throw Error(r.error); return r.data;
 }
-function notify(text){$('#notice').textContent=text;$('#notice').hidden=false;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('#notice').hidden=true,6500);}
+function notify(text){if(printerPickerOpen&&!$('#modal').hidden){printerNotice=text;$('#notice').hidden=true;const box=$('#printer-inline-notice');if(box){box.textContent=text;box.hidden=false;}return;}$('#notice').textContent=text;$('#notice').hidden=false;clearTimeout(noticeTimer);noticeTimer=setTimeout(()=>$('#notice').hidden=true,6500);}
 function persist(){localStorage.setItem('jm-cart',JSON.stringify({cart,discount,paid,paymentMethod,customer,phone,printReceipt}));}
 function load(){state=api('state');role=state.role;}
 const isAdmin=()=>role==='ADMIN';
 function restoreCart(){try{const draft=JSON.parse(localStorage.getItem('jm-cart')||'null');if(draft){cart=Array.isArray(draft.cart)?draft.cart.filter(l=>Number.isSafeInteger(l.id)&&Number.isInteger(l.qty)&&l.qty>0&&l.qty<=999):[];discount=Number(draft.discount)||0;paid=String(draft.paid??'');paymentMethod=draft.paymentMethod==='QRIS'?'QRIS':'CASH';printReceipt=draft.printReceipt===true;customer=String(draft.customer||'');phone=String(draft.phone||'');}}catch{cart=[];}}
 function renderLogin(){
- printerPickerOpen=false;printerDraft='';
+ printerPickerOpen=false;printerDraft='';printerNotice='';
  document.body.classList.remove('admin');$('h1').textContent='Selamat datang';$('nav').hidden=true;$('#logout').hidden=true;$('#modal').hidden=true;
  $('#content').innerHTML=`<section class="card login-card"><div class="login-mark">JM</div><h2>Masuk ke JusMerdeka</h2><p class="muted">Pilih akun, lalu masukkan PIN 6 digit.<br>Tetap bisa masuk tanpa internet.</p><div class="role-options">${[['CASHIER','Kasir'],['ADMIN','Admin']].map(([r,n])=>`<button class="${loginRole===r?'':'secondary'}" data-login-role="${r}" aria-pressed="${loginRole===r}">${n}</button>`).join('')}</div>${loginRole?`<form id="login-form"><label>PIN ${loginRole==='ADMIN'?'Admin':'Kasir'}<input id="login-pin" name="pin" type="password" inputmode="numeric" pattern="[0-9]{6}" minlength="6" maxlength="6" autocomplete="off" required placeholder="••••••"></label><p id="login-error" class="error" role="alert" hidden></p><button type="submit" class="wide">Masuk sebagai ${loginRole==='ADMIN'?'Admin':'Kasir'}</button></form>`:''}</section>`;
  $('#login-pin')?.focus();
@@ -25,7 +25,7 @@ function product(id){return state.products.find(p=>p.id===id);}
 function subtotal(){return cart.reduce((n,l)=>n+(product(l.id)?.price||0)*l.qty,0);}
 function total(){return Math.max(0,subtotal()-discount);}
 function modal(title,body,focus=true){$('#modal-content').innerHTML=`<h2 id="modal-title">${esc(title)}</h2>${body}`;$('#modal').hidden=false;if(focus)$('#modal').querySelector('input,button')?.focus();}
-function close(){if(!paying){printerPickerOpen=false;printerDraft='';$('#modal').hidden=true;$('#modal-content').innerHTML='';}}
+function close(){if(!paying){printerPickerOpen=false;printerDraft='';printerNotice='';$('#modal').hidden=true;$('#modal-content').innerHTML='';}}
 function navigate(next){if(paying)return;if(!isAdmin()&&!['kasir','pengeluaran','riwayat'].includes(next))throw Error('Akses ini hanya untuk admin.');tab=next;query='';selectedCategory='';render();}
 function render(){
   if(!role){renderLogin();return;}
@@ -108,7 +108,7 @@ function printerSummary(){
 }
 function openPrinterPicker(){
  if(!isAdmin())throw Error('Akses ini hanya untuk admin.');
- printerPickerOpen=true;printerDraft='';renderPrinterPicker();
+ printerPickerOpen=true;printerDraft='';printerNotice='';$('#notice').hidden=true;renderPrinterPicker();
 }
 window.openPrinterPicker=openPrinterPicker;
 window.refreshPrinterPicker=()=>{if(isAdmin()){if(printerPickerOpen&&!$('#modal').hidden)renderPrinterPicker();else if($('#printer-area'))$('#printer-area').innerHTML=printerSummary();}};
@@ -122,13 +122,13 @@ function renderPrinterPicker(){
  else if(!d.permission)devices='<div class="printer-empty"><span aria-hidden="true">▣</span><strong>Izinkan perangkat terdekat</strong><p>Aplikasi perlu izin Bluetooth untuk membaca printer yang sudah dipasangkan.</p><button class="wide" data-action="printerPermission">Izinkan Bluetooth</button><button class="secondary wide spaced" data-action="openBluetoothPermissions">Buka izin aplikasi</button></div>';
  else if(!d.enabled)devices='<div class="printer-empty"><span aria-hidden="true">↗</span><strong>Bluetooth HP masih mati</strong><p>Aktifkan Bluetooth di HP, lalu kembali ke layar ini.</p><button class="wide" data-action="openBluetoothSettings">Buka Bluetooth HP</button></div>';
  else if(!d.items.length)devices='<div class="printer-empty"><span aria-hidden="true">▤</span><strong>Belum ada perangkat berpasangan</strong><p>Nyalakan printer, buka Bluetooth HP, lalu pasangkan printer. Setelah itu kembali ke sini.</p><button class="wide" data-action="openBluetoothSettings">Pasangkan di Bluetooth HP</button></div>';
- else devices=`<fieldset class="printer-device-list"><legend>Perangkat yang sudah dipasangkan</legend>${d.items.map(x=>`<label class="printer-device ${printerDraft===x.address?'selected':''}"><input type="radio" name="printer-choice" value="${esc(x.address)}" ${printerDraft===x.address?'checked':''} ${p.busy?'disabled':''}><span class="device-symbol" aria-hidden="true">▤</span><span class="device-info"><strong>${esc(x.name)}</strong><small>Alamat ${esc(x.address.slice(-8))}</small>${x.address===p.address?'<span class="device-in-use">Sedang dipakai aplikasi</span>':''}</span><span class="device-check" aria-hidden="true">${printerDraft===x.address?'✓':''}</span></label>`).join('')}</fieldset><p class="printer-help">Daftar ini juga bisa berisi headset atau speaker. Pilih nama yang cocok dengan printermu.</p><button class="wide" data-action="savePrinter" ${draft&&!p.busy?'':'disabled'}>${draft?'Gunakan '+esc(draft.name):'Pilih satu perangkat dahulu'}</button>`;
+ else devices=`<fieldset class="printer-device-list"><legend>Perangkat yang sudah dipasangkan</legend>${d.items.map(x=>`<label class="printer-device ${printerDraft===x.address?'selected':''}"><input type="radio" name="printer-choice" value="${esc(x.address)}" ${printerDraft===x.address?'checked':''} ${p.busy?'disabled':''}><span class="device-symbol" aria-hidden="true">BT</span><span class="device-info"><strong>${esc(x.name)}</strong><small>Alamat ${esc(x.address.slice(-8))}</small>${x.address===p.address?'<span class="device-in-use">Sedang dipakai aplikasi</span>':''}</span><span class="device-check" aria-hidden="true">${printerDraft===x.address?'✓':''}</span></label>`).join('')}</fieldset><p class="printer-help">Daftar ini juga bisa berisi headset atau speaker. Pilih nama yang cocok dengan printermu.</p><button class="wide" data-action="savePrinter" ${draft&&!p.busy?'':'disabled'}>${draft?'Gunakan '+esc(draft.name):'Pilih satu perangkat dahulu'}</button>`;
  const testStatus=printerStateLabel(p);
  let test='';
  if(p.address){
  test=`<section class="printer-test"><div class="row"><h3>3. Tes kertas</h3><span class="badge">${esc(testStatus)}</span></div><p>Printer tujuan: <strong>${esc(p.name)}</strong></p>${p.busy?'<div class="printer-progress" role="status">Mengirim data… tunggu proses selesai.</div>':p.testStatus==='AWAITING'?`<div class="paper-question"><strong>Kertas tes keluar dan tulisannya terbaca?</strong><p>Konfirmasi berdasarkan kertas yang keluar dari printer.</p><div class="paper-answers"><button data-action="printerPaperYes">Ya, kertas keluar</button><button class="secondary" data-action="printerPaperNo">Belum keluar</button></div></div>`:p.testStatus==='CONFIRMED'?'<div class="printer-confirmed">✓ Admin mengonfirmasi kertas tes keluar.</div>':p.testStatus==='NO_PAPER'||p.testStatus==='FAILED'?'<div class="printer-troubleshoot"><strong>Periksa printer sebelum tes ulang</strong><p>Pastikan printer menyala, kertas dan tutup terpasang, serta tidak sedang dipakai aplikasi lain. Jika tetap gagal, catat tipe printer pada label perangkat.</p></div>':'<p class="printer-help">Pilihan sudah disimpan. Lanjutkan tes untuk memeriksa kertas.</p>'}<button class="wide ${p.testStatus==='CONFIRMED'?'secondary':''}" data-action="testPrint" ${!canChoose||p.busy||p.testStatus==='AWAITING'?'disabled':''}>${p.testStatus==='CONFIRMED'?'Ulangi tes cetak':'Cetak kertas tes'}</button><p class="printer-help">Bluetooth tersambung dan data terkirim belum menjamin kertas keluar. Gunakan printer ESC/POS Bluetooth Classic/SPP.</p></section>`;
  }
- modal('Siapkan printer',`<section id="printer-picker"><div class="printer-steps" aria-label="Langkah pengaturan printer"><span class="${canChoose?'complete':'current'}"><b>1</b> Bluetooth HP</span><span class="${p.address?'complete':canChoose?'current':''}"><b>2</b> Pilih printer</span><span class="${p.testStatus==='CONFIRMED'?'complete':p.address?'current':''}"><b>3</b> Tes kertas</span></div>${p.address?`<div class="picker-current"><small>PRINTER TERSIMPAN</small><strong>${esc(p.name)}</strong><span>${esc(testStatus)}</span></div>`:''}<div class="printer-list-heading"><h3>2. Pilih perangkat</h3><button class="text-button" data-action="refreshPrinters">Perbarui daftar</button></div>${devices}${canChoose&&d.items.length?'<button class="text-button wide" data-action="openBluetoothSettings">Printer belum muncul? Buka Bluetooth HP ↗</button>':''}${test}${p.address&&!p.busy?'<button class="text-button wide danger" data-action="clearPrinter">Hapus pilihan printer dari aplikasi</button>':''}</section>`,false);
+ modal('Siapkan printer',`<section id="printer-picker"><div class="printer-steps" aria-label="Langkah pengaturan printer"><span class="${canChoose?'complete':'current'}"><b>1</b> Bluetooth HP</span><span class="${p.address?'complete':canChoose?'current':''}"><b>2</b> Pilih printer</span><span class="${p.testStatus==='CONFIRMED'?'complete':p.address?'current':''}"><b>3</b> Tes kertas</span></div>${p.address?`<div class="picker-current"><small>PRINTER TERSIMPAN</small><strong>${esc(p.name)}</strong><span>${esc(testStatus)}</span></div>`:''}<div id="printer-inline-notice" class="printer-inline-notice" role="status" ${printerNotice?'':'hidden'}>${esc(printerNotice)}</div><div class="printer-list-heading"><h3>2. Pilih perangkat</h3><button class="text-button" data-action="refreshPrinters">Perbarui daftar</button></div>${devices}${canChoose&&d.items.length?'<button class="text-button wide" data-action="openBluetoothSettings">Printer belum muncul? Buka Bluetooth HP ↗</button>':''}${test}${p.address&&!p.busy?'<button class="text-button wide danger" data-action="clearPrinter">Hapus pilihan printer dari aplikasi</button>':''}</section>`,false);
  $('#modal .dialog').scrollTop=previous?scroll:0;
  if(focusedRadio)[...document.querySelectorAll('[name=printer-choice]')].find(x=>x.value===focusedRadio)?.focus({preventScroll:true});
  if(!previous){$('#modal-title').tabIndex=-1;$('#modal-title').focus({preventScroll:true});}
@@ -216,8 +216,8 @@ document.addEventListener('click',event=>{
    case 'refreshPrinters':renderPrinterPicker();break;
    case 'savePrinter':api('savePrinter',{address:printerDraft});load();if(tab==='pengaturan')renderSettings();renderPrinterPicker();$('#printer-picker .printer-test')?.scrollIntoView({block:'nearest'});notify('Pilihan printer disimpan. Lanjutkan ke tes kertas.');break;
    case 'clearPrinter':if(confirm('Hapus pilihan printer dari aplikasi? Pasangan Bluetooth di HP tetap tersimpan.')){api('clearPrinter');printerDraft='';load();if(tab==='pengaturan')renderSettings();renderPrinterPicker();}break;
-   case 'testPrint':api('testPrint');renderPrinterPicker();break;
-   case 'printerPaperYes':case 'printerPaperNo':{const p=api('printerDevices').selected;api('confirmPrinterTest',{testId:p.testId,paper:b.dataset.action==='printerPaperYes'});load();if(tab==='pengaturan')renderSettings();renderPrinterPicker();break;}
+   case 'testPrint':printerNotice='';api('testPrint');renderPrinterPicker();break;
+   case 'printerPaperYes':case 'printerPaperNo':{printerNotice='';const p=api('printerDevices').selected;api('confirmPrinterTest',{testId:p.testId,paper:b.dataset.action==='printerPaperYes'});load();if(tab==='pengaturan')renderSettings();renderPrinterPicker();break;}
    case 'openBluetoothSettings':case 'openBluetoothPermissions':api(b.dataset.action);break;
    case 'backup':case 'restore':api(b.dataset.action);break;
   }

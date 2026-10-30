@@ -76,6 +76,7 @@ for(const mode of ['DAY','WEEK','MONTH']){await page.locator('#report-mode').sel
 await page.locator('nav [data-tab="pengaturan"]').click();await page.getByRole('heading',{name:'Printer Bluetooth'}).waitFor();
 await page.getByRole('button',{name:'Siapkan printer',exact:true}).click();
 await page.getByRole('heading',{name:'Siapkan printer',exact:true}).waitFor();
+if(await page.locator('#notice').isVisible())throw Error('Toast covers printer setup');
 if(await page.getByRole('button',{name:'Pilih satu perangkat dahulu',exact:true}).isEnabled())throw Error('Printer was preselected');
 await page.locator('[name=printer-choice][value="AA:BB:CC:DD:EE:01"]').check();
 await page.getByRole('button',{name:'Gunakan IWARE Printer',exact:true}).click();
