@@ -1,0 +1,5 @@
+import {randomUUID} from 'node:crypto';
+import {requireOwner} from '../../../lib/auth';
+import {database} from '../../../lib/db';
+import {sameOrigin,randomKey,hash,failure} from '../../../lib/security';
+export async function POST(request:Request){try{sameOrigin(request);const u=await requireOwner(),id=randomUUID(),key=randomKey(),expires=new Date(Date.now()+86400000).toISOString();const sql=database();await sql.transaction([sql.query('SELECT pg_advisory_xact_lock($1)',[u.id]),sql.query('UPDATE jm_monitor_devices SET revoked=true WHERE owner_user_id=$1 AND revoked=false',[u.id]),sql.query('INSERT INTO jm_monitor_devices(id,owner_user_id,name,secret_hash,expires_at) VALUES($1,$2,$3,$4,$5)',[id,u.id,'HP Kasir JusMerdeka',hash(key),expires])]);const config={format:'jusmerdeka-connection',version:2,origin:new URL(request.url).origin,deviceId:id,deviceKey:key,expiresAt:expires};return new Response(JSON.stringify(config),{headers:{'Content-Type':'application/json','Content-Disposition':'attachment; filename="JusMerdeka-koneksi.jmconnect"','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Referrer-Policy':'no-referrer'}});}catch(e){return failure(e);}}

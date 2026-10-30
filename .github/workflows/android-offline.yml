@@ -2,9 +2,9 @@ name: Android offline APK
 on:
   push:
     branches: [main]
-    paths: ['native/android/**', '.github/workflows/android-offline.yml']
+    paths: ['native/android/**', 'remote-monitor/**', '.github/workflows/android-offline.yml']
   pull_request:
-    paths: ['native/android/**', '.github/workflows/android-offline.yml']
+    paths: ['native/android/**', 'remote-monitor/**', '.github/workflows/android-offline.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -64,3 +64,20 @@ jobs:
           name: JusMerdeka-offline-debug-apk
           path: native/android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
+
+  monitor-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install monitor dependencies
+        run: npm ci --prefix remote-monitor
+      - name: Check monitor types and transactional sync
+        run: |
+          npm run typecheck --prefix remote-monitor
+          npm test --prefix remote-monitor
+      - name: Build monitor without production credentials
+        run: npm run build --prefix remote-monitor

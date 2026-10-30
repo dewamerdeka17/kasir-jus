@@ -20,6 +20,9 @@ public class SyncTest {
   assertEquals(c.getString("origin"),SyncConfig.validate(c.toString()).getString("origin"));
   for(String bad:new String[]{"http://jus.chatgpt.site","https://evil.example","https://good.chatgpt.site@evil.example","https://good.chatgpt.site/api/sync","https://good.chatgpt.site?token=bad","https://good.chatgpt.site:443"}){c.put("origin",bad);try{SyncConfig.validate(c.toString());fail("Invalid URL accepted");}catch(IllegalArgumentException expected){}}
  }
+ @Test public void vercelConfigDoesNotNeedChatgptServiceCredential() throws Exception {
+  JSONObject c=new JSONObject().put("format","jusmerdeka-connection").put("version",2).put("origin","https://jusmerdeka-monitor.vercel.app").put("deviceId","12345678-1234-1234-1234-123456789abc").put("deviceKey","a".repeat(43)).put("expiresAt","2099-12-31T23:59:59.000Z");assertFalse(SyncConfig.validate(c.toString()).has("serviceAccess"));
+ }
  @Test public void cashierCannotManageCloudConnection() throws Exception {
   OfflineSession s=new OfflineSession(RuntimeEnvironment.getApplication());s.login("CASHIER","123456");
   for(String action:new String[]{"syncStatus","syncNow","connectSync","disconnectSync"})try{s.require(action);fail("Cashier accessed "+action);}catch(IllegalArgumentException expected){}

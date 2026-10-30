@@ -79,8 +79,16 @@ HPP dihapus dari tampilan dan formulir Produk. Harga/modal historis di database 
 
 ## Remote monitoring (v2.5)
 
-The private dashboard is https://jusmerdeka-monitor.peppyprawn64.chatgpt.site (owner's ChatGPT sign-in). From its **Koneksi HP** screen download a connection file, then on the same phone choose **Admin → Setelan → Pantau dari jauh → Pilih file koneksi**. Initial connection expires in 24 hours; delete the downloaded file after importing it. Making a new file revokes the previous writer. Cloud data remains viewable after revocation.
+The private dashboard is the previous owner-private Site (ChatGPT sign-in). From its **Koneksi HP** screen download a connection file, then on the same phone choose **Admin → Setelan → Pantau dari jauh → Pilih file koneksi**. Initial connection expires in 24 hours; delete the downloaded file after importing it. Making a new file revokes the previous writer. Cloud data remains viewable after revocation.
 
 Uploads run on a serialized background executor while the activity is open, on launch, roughly every 60 seconds, and after ledger changes. No Android background service is promised: closing/force-stopping the app stops uploads until reopened. Network errors never roll back or block a checkout. Admin can force an upload or disconnect locally; remotely revoke on the dashboard to invalidate its device writer. TLS only, no redirects, keys encrypted with Android Keystore AES-GCM, keys excluded from backups/source/APK. SQLite is the only writer; remote monitoring never changes stock, receipts, or local transactions. One phone is the primary ledger. Importing an older backup replaces the cloud snapshot on the next upload, matching the local restore semantics.
 
 Snapshots include all sales, expenses and products, including cancellations and archived records; no HPP, PIN, customer contact or receipt bodies are sent. Upload size is bounded to 12 MB. Server validates totals and IDs, records receipt time and snapshot time, and rejects stale upload revisions; retrying cannot duplicate sales because the uploaded snapshot replaces the prior snapshot rather than appending it. Dashboard XLSX reports use the same styled template and WIB report conventions as the APK.
+
+## Vercel delta synchronization (v3.0)
+
+The new connection format (`version: 2`) accepts HTTPS Vercel origins and a per-device writer key without any ChatGPT service credential. The APK remains compatible with existing version-1 Sites configurations.
+
+For Vercel, the phone first reads the acknowledged server revision, then compares canonical hashes of all locally authoritative records with its last acknowledged checkpoint. Only changed products/sales/expenses and removal tombstones are transmitted in bounded batches (at most 100 records and about 250 KB). An atomic server commit exposes the whole update at once. The checkpoint is saved locally only after the exact revision is acknowledged. Failed sends leave it unchanged; retries upsert stable record IDs rather than appending duplicates. Lost checkpoint/uncertain acknowledgment triggers a full atomic reset on the next send, so restoring older backups also removes cloud records no longer in the local ledger. No local sale or expense is deleted after transfer.
+
+The independent Next.js backend and SQL migration are in `remote-monitor/`. Its production database connection still needs activation before the Vercel setup can be used. Existing Sites connection files continue to use the prior full-snapshot endpoint.
