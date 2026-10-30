@@ -8,8 +8,10 @@ await page.addInitScript(()=>{
  const sales=[],expenses=[];let role='';window.printCalls=0;
  window.NativePOS={request(raw){const p=JSON.parse(raw);let data=true;
  if(!['login','logout','session'].includes(p.action)&&!role)return JSON.stringify({ok:false,error:'Silakan login terlebih dahulu.'});
- if(role==='CASHIER'&&['saveProduct','archiveProduct','cancel','report','saveSettings','backup','restore','choosePrinter','testPrint','previewReceipt','reportRange','exportReport'].includes(p.action))return JSON.stringify({ok:false,error:'Akses ini hanya untuk admin.'});
+ if(role==='CASHIER'&&['saveProduct','archiveProduct','cancel','report','saveSettings','backup','restore','choosePrinter','testPrint','previewReceipt','reportRange','exportReport','syncStatus','syncNow','connectSync','disconnectSync'].includes(p.action))return JSON.stringify({ok:false,error:'Akses ini hanya untuk admin.'});
  switch(p.action){
+ case 'syncStatus':data={configured:false,status:'Belum terhubung.',origin:'',lastSuccess:'',busy:false};break;
+ case 'connectSync':window.connectSyncCalls=(window.connectSyncCalls||0)+1;break;
  case 'session':data={role};break;
  case 'login':if((p.role==='ADMIN'&&p.pin==='654321')||(p.role==='CASHIER'&&p.pin==='123456')){role=p.role;data={role};}else return JSON.stringify({ok:false,error:'PIN salah untuk akun yang dipilih.'});break;
  case 'logout':role='';break;
@@ -64,6 +66,7 @@ await page.locator('nav [data-tab="laporan"]').click();await page.getByRole('hea
 for(const mode of ['DAY','WEEK','MONTH']){await page.locator('#report-mode').selectOption(mode);await page.getByRole('button',{name:'Ekspor laporan Excel (.xlsx)'}).click();if(await page.evaluate(()=>window.exportRequest.mode)!==mode)throw Error('Wrong export period');}
 
 await page.locator('nav [data-tab="pengaturan"]').click();await page.getByRole('heading',{name:'Printer Bluetooth'}).waitFor();
+await page.getByRole('heading',{name:'Pantau dari jauh'}).waitFor();await page.getByRole('button',{name:'Pilih file koneksi'}).click();if(await page.evaluate(()=>window.connectSyncCalls)!==1)throw Error('Connection picker not invoked');
 await page.locator('#settings-form [name=header]').fill('SEGAR SETIAP HARI');
 await page.locator('#settings-form [name=paper]').selectOption('48');await page.locator('#preview-method').selectOption('QRIS');
 await page.waitForFunction(()=>document.querySelector('#receipt-preview').textContent.includes('SEGAR SETIAP HARI')&&document.querySelector('#receipt-preview').textContent.includes('QRIS'));

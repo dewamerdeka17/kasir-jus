@@ -323,6 +323,23 @@ public final class PosDatabase extends SQLiteOpenHelper {
             JSONObject result=ReportData.build(source,period);db.setTransactionSuccessful();return result;
         }finally{db.endTransaction();}
     }
+    /** Minimal cloud snapshot: no PINs, printer credentials, HPP, receipts or customer contacts. */
+    public synchronized JSONObject monitorSnapshot() throws Exception {
+        SQLiteDatabase db=getWritableDatabase();db.beginTransaction();
+        try {
+            JSONArray sales=rows("SELECT id,invoice,created_at,subtotal,discount,total,paid,cancelled,payment_method,items FROM sales ORDER BY id");
+            for(int i=0;i<sales.length();i++) {
+                JSONObject sale=sales.getJSONObject(i);JSONArray original=new JSONArray(sale.getString("items")),safe=new JSONArray();
+                for(int j=0;j<original.length();j++){JSONObject l=original.getJSONObject(j);safe.put(new JSONObject().put("id",l.getLong("id")).put("name",l.getString("name")).put("qty",l.getLong("qty")).put("price",l.getLong("price")));}
+                sale.put("items",safe);
+            }
+            java.text.SimpleDateFormat utc=new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",java.util.Locale.US);utc.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+            JSONObject result=new JSONObject().put("capturedAt",utc.format(new java.util.Date())).put("shop",new JSONObject().put("name",settings().optString("name","JusMerdeka")))
+                .put("products",rows("SELECT id,name,category,price,stock,active FROM products ORDER BY id")).put("sales",sales)
+                .put("expenses",rows("SELECT id,expense_date,category,description,amount,created_by,cancelled FROM expenses ORDER BY id"));
+            db.setTransactionSuccessful();return result;
+        }finally{db.endTransaction();}
+    }
     public synchronized String backup() throws Exception {
         SQLiteDatabase db=getWritableDatabase(); db.beginTransaction();
         try {

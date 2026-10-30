@@ -13,7 +13,7 @@ public final class OfflineSession {
     private static final Set<String> COMMON = new HashSet<>(Arrays.asList(
         "state", "checkout", "history", "sale", "print", "expenses", "addExpense"));
     private static final Set<String> ADMIN = new HashSet<>(Arrays.asList(
-        "reportRange", "exportReport", "previewReceipt", "choosePrinter", "testPrint", "cancelExpense", "saveProduct", "archiveProduct", "cancel", "report", "saveSettings", "backup", "restore"));
+        "syncStatus", "syncNow", "connectSync", "disconnectSync", "reportRange", "exportReport", "previewReceipt", "choosePrinter", "testPrint", "cancelExpense", "saveProduct", "archiveProduct", "cancel", "report", "saveSettings", "backup", "restore"));
     private final SharedPreferences attempts;
     private String role="";
 

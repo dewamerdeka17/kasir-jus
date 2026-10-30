@@ -41,9 +41,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @SuppressLint("MissingPermission") // Every Bluetooth entry point checks CONNECT before querying or using paired devices.
 public class MainActivity extends Activity {
     private static final String HOME="file:///android_asset/pos/index.html";
-    private static final int EXPORT=41, IMPORT=42, BLUETOOTH=43, REPORT=44;
+    private static final int EXPORT=41, IMPORT=42, BLUETOOTH=43, REPORT=44, CONNECT_SYNC=45;
     private static final int MAX_BACKUP_BYTES=25*1024*1024;
     private PosDatabase db;
+    private RemoteSync remoteSync;
     private OfflineSession session;
     private volatile JSONObject pendingReport;
     private WebView web;
@@ -55,7 +56,7 @@ public class MainActivity extends Activity {
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override public void onCreate(Bundle state) {
-        super.onCreate(state); db=new PosDatabase(this); session=new OfflineSession(this);
+        super.onCreate(state); db=new PosDatabase(this); session=new OfflineSession(this); remoteSync=new RemoteSync(this,db);
         web=new WebView(this); setContentView(web);
         web.setWebChromeClient(new WebChromeClient());
         web.setOnApplyWindowInsetsListener((view,insets)-> {
@@ -165,6 +166,10 @@ public class MainActivity extends Activity {
                             for(int i=0;i<products.length();i++) products.getJSONObject(i).remove("cost");
                         }
                         break;
+                    case "syncStatus": result=remoteSync.status(); break;
+                    case "syncNow": remoteSync.trigger(); result=true; break;
+                    case "disconnectSync": remoteSync.disconnect(); result=true; break;
+                    case "connectSync": runOnUiThread(()->startActivityForResult(new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE),CONNECT_SYNC)); result=true; break;
                     case "saveProduct": result=db.saveProduct(p.getJSONObject("product")); break;
                     case "archiveProduct": db.archiveProduct(PosDatabase.number(p,"id",1,Long.MAX_VALUE)); result=true; break;
                     case "checkout": result=publicSale(db.checkoutCash(p)); break;
@@ -208,6 +213,7 @@ public class MainActivity extends Activity {
                             new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE),IMPORT)).show()); result=true; break;
                     default: throw new IllegalArgumentException("Aksi tidak dikenal.");
                 }
+                if(java.util.Arrays.asList("checkout","addExpense","cancelExpense","cancel","saveProduct","archiveProduct","saveSettings").contains(action))remoteSync.trigger();
                 return new JSONObject().put("ok",true).put("data",result).toString();
             } catch(Exception e) {
                 try { return new JSONObject().put("ok",false).put("error",e instanceof IllegalArgumentException?e.getMessage():"Operasi gagal. Data belum diubah; periksa input atau backup.").toString(); }
@@ -234,8 +240,12 @@ public class MainActivity extends Activity {
         io.execute(()-> {
             try {
                 synchronized(session) {
-                session.require(request==EXPORT?"backup":request==REPORT?"exportReport":"restore");
-                if(request==REPORT) {
+                session.require(request==CONNECT_SYNC?"connectSync":request==EXPORT?"backup":request==REPORT?"exportReport":"restore");
+                if(request==CONNECT_SYNC) {
+                    ByteArrayOutputStream bytes=new ByteArrayOutputStream();
+                    try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IllegalArgumentException("File koneksi tidak dapat dibaca.");byte[] part=new byte[2048];int n;while((n=in.read(part))!=-1){if(bytes.size()+n>16000)throw new IllegalArgumentException("File koneksi terlalu besar.");bytes.write(part,0,n);}}
+                    remoteSync.connect(bytes.toString("UTF-8"));message("Dashboard terhubung. Mengirim data awal…",false);
+                } else if(request==REPORT) {
                     JSONObject params=pendingReport;if(params==null)throw new IllegalArgumentException("Pilih periode ekspor kembali.");
                     JSONObject report=db.reportRange(params.getString("mode"),params.getString("anchor"));
                     try(OutputStream out=getContentResolver().openOutputStream(uri,"wt")) {
@@ -262,7 +272,7 @@ public class MainActivity extends Activity {
                     String details="Backup: "+info.optString("exportedAt","tanggal tidak diketahui")+"\n"+info.getJSONArray("products").length()+" produk, "+info.getJSONArray("sales").length()+" transaksi.\n\nGanti seluruh data di HP ini?";
                     runOnUiThread(()-> { if(!destroyed) new AlertDialog.Builder(MainActivity.this).setTitle("Konfirmasi pemulihan")
                         .setMessage(details).setNegativeButton("Batal",null).setPositiveButton("Ganti data",(d,w)->io.execute(()-> {
-                            try { synchronized(session) { session.require("restore"); db.restore(backup); } message("Backup dipulihkan. Keranjang dikosongkan.",true); }
+                            try { synchronized(session) { session.require("restore"); db.restore(backup); remoteSync.trigger(); } message("Backup dipulihkan. Keranjang dikosongkan.",true); }
                             catch(Exception e) { message("Backup tidak valid. Data lama tetap tersimpan.",false); }
                         })).show(); });
                 }
@@ -273,6 +283,7 @@ public class MainActivity extends Activity {
     @Override public void onBackPressed() { web.evaluateJavascript("window.goHome && window.goHome()",null); }
     @Override protected void onDestroy() {
         destroyed=true;
+        if(remoteSync!=null)remoteSync.close();
         if(socket!=null) try { socket.close(); } catch(Exception ignored) {}
         web.removeJavascriptInterface("NativePOS"); web.destroy(); io.shutdown(); timer.shutdownNow();
         // The helper is process-scoped for pending bridge / document operations; never close mid-checkout.
