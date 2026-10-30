@@ -45,6 +45,7 @@ public class MainActivity extends Activity {
     private static final int MAX_BACKUP_BYTES=25*1024*1024;
     private PosDatabase db;
     private RemoteSync remoteSync;
+    private PrinterSelection printerSelection;
     private OfflineSession session;
     private volatile JSONObject pendingReport;
     private WebView web;
@@ -56,7 +57,7 @@ public class MainActivity extends Activity {
 
     @SuppressLint("SetJavaScriptEnabled")
     @Override public void onCreate(Bundle state) {
-        super.onCreate(state); db=new PosDatabase(this); session=new OfflineSession(this); remoteSync=new RemoteSync(this,db);
+        super.onCreate(state); db=new PosDatabase(this); session=new OfflineSession(this); remoteSync=new RemoteSync(this,db); printerSelection=new PrinterSelection(getPreferences(MODE_PRIVATE));
         web=new WebView(this); setContentView(web);
         web.setWebChromeClient(new WebChromeClient());
         web.setOnApplyWindowInsetsListener((view,insets)-> {
@@ -99,35 +100,41 @@ public class MainActivity extends Activity {
         for(BluetoothDevice d:a.getBondedDevices()) result.put(new JSONObject().put("name",d.getName()==null?"Printer Bluetooth":d.getName()).put("address",d.getAddress()));
         return result;
     }
-    private void choosePrinter() {
-        try { session.require("choosePrinter"); } catch(IllegalArgumentException e) { message(e.getMessage(),false); return; }
-        if(!bluetoothPermission()) { requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT},BLUETOOTH); return; }
-        try {
-            JSONArray devices=printers();
-            if(devices.length()==0) {
-                new AlertDialog.Builder(this).setTitle("Belum ada perangkat berpasangan")
-                    .setMessage("Pasangkan printer Bluetooth Classic/SPP lewat pengaturan HP, lalu pilih kembali di sini.")
-                    .setPositiveButton("Buka Bluetooth",(d,w)->startActivity(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS)))
-                    .setNegativeButton("Tutup",null).show(); return;
-            }
-            String[] labels=new String[devices.length()];
-            for(int i=0;i<labels.length;i++) { JSONObject d=devices.getJSONObject(i); labels[i]=d.getString("name")+"\n"+d.getString("address"); }
-            new AlertDialog.Builder(this).setTitle("Pilih printer yang sudah dipasangkan")
-                .setItems(labels,(dialog,index)-> {
-                    try {
-                        JSONObject d=devices.getJSONObject(index);
-                        getPreferences(MODE_PRIVATE).edit().putString("printer",d.getString("address")).putString("printerName",d.getString("name")).apply();
-                        message("Printer dipilih. Gunakan Tes cetak untuk memeriksa.",false);
-                    } catch(Exception e) { message("Printer gagal dipilih.",false); }
-                }).setNegativeButton("Tutup",null).show();
-        } catch(Exception e) { message(e.getMessage(),false); }
+    private JSONObject printerDevices() throws Exception {
+        BluetoothAdapter a=adapter();boolean permission=bluetoothPermission();
+        JSONObject result=new JSONObject().put("supported",a!=null).put("permission",permission)
+            .put("enabled",a!=null&&permission&&a.isEnabled()).put("selected",printerSelection.state(printing.get()));
+        JSONArray items=new JSONArray();
+        if(a!=null&&permission&&a.isEnabled()){
+            java.util.List<JSONObject> sorted=new java.util.ArrayList<>();JSONArray paired=printers();
+            for(int i=0;i<paired.length();i++)sorted.add(paired.getJSONObject(i));
+            sorted.sort((x,y)->{int c=x.optString("name").compareToIgnoreCase(y.optString("name"));return c==0?x.optString("address").compareTo(y.optString("address")):c;});
+            for(JSONObject item:sorted)items.put(item);
+        }
+        return result.put("items",items);
     }
-    private void print(String text) {
+    private void refreshPrinterUi(){runOnUiThread(()->{if(!destroyed&&web!=null)web.evaluateJavascript("window.refreshPrinterPicker && window.refreshPrinterPicker()",null);});}
+    private void choosePrinter() {
+        try {session.require("choosePrinter");}catch(IllegalArgumentException e){message(e.getMessage(),false);return;}
+        if(!bluetoothPermission()){requestPermissions(new String[]{Manifest.permission.BLUETOOTH_CONNECT},BLUETOOTH);return;}
+        runOnUiThread(()->{if(!destroyed)web.evaluateJavascript("window.openPrinterPicker && window.openPrinterPicker()",null);});
+    }
+    private void savePrinter(String address)throws Exception{
+        if(printing.get())throw new IllegalArgumentException("Tunggu proses cetak selesai sebelum mengganti printer.");
+        if(!bluetoothPermission())throw new IllegalArgumentException("Izinkan perangkat terdekat terlebih dahulu.");
+        BluetoothAdapter a=adapter();if(a==null||!a.isEnabled())throw new IllegalArgumentException("Aktifkan Bluetooth HP terlebih dahulu.");
+        BluetoothDevice d=a.getRemoteDevice(address);if(d.getBondState()!=BluetoothDevice.BOND_BONDED)throw new IllegalArgumentException("Perangkat belum dipasangkan. Buka Bluetooth HP lalu perbarui daftar.");
+        printerSelection.select(d.getAddress(),d.getName()==null?"Printer Bluetooth":d.getName());
+    }
+    private void print(String text){print(text,false);}
+    private void print(String text,boolean test) {
         if(!bluetoothPermission()) { message("Izinkan perangkat terdekat melalui Pilih printer.",false); return; }
         String address=getPreferences(MODE_PRIVATE).getString("printer","");
         if(address.isEmpty()) { message("Pilih printer di Pengaturan dahulu. Transaksi tetap tersimpan.",false); return; }
         if(!printing.compareAndSet(false,true)) { message("Masih mencetak struk sebelumnya.",false); return; }
+        final String testId=test?printerSelection.beginTest():"";refreshPrinterUi();
         io.execute(()-> {
+            String resultMessage;boolean delivered=false;
             BluetoothSocket jobSocket=null; ScheduledFuture<?> timeout=null; final AtomicBoolean expired=new AtomicBoolean(false);
             try {
                 BluetoothAdapter a=adapter();
@@ -140,13 +147,15 @@ public class MainActivity extends Activity {
                 jobSocket.connect();
                 PrinterTransport.send(jobSocket.getOutputStream(),Receipt.bytes(text),Thread::sleep);
                 if(expired.get())throw new java.io.IOException("Printer timeout");
-                message("Data dikirim ke printer. Aplikasi belum bisa memastikan kertas keluar. Periksa hasil cetak.",false);
-            } catch(Exception e) { message("Cetak gagal / hasil belum pasti. Transaksi tetap tersimpan. Periksa printer sebelum cetak ulang.",false); }
+                delivered=true;resultMessage=test?"Data tes terkirim. Periksa kertas, lalu konfirmasi hasilnya.":"Data dikirim ke printer. Periksa hasil cetak sebelum mencetak ulang.";
+            } catch(Exception e) { resultMessage="Cetak gagal / hasil belum pasti. Periksa printer sebelum mencoba lagi."; }
             finally {
                 if(timeout!=null) timeout.cancel(false);
                 if(jobSocket!=null) try { jobSocket.close(); } catch(Exception ignored) {}
                 socket=null; printing.set(false);
             }
+            if(test)printerSelection.finishTest(address,testId,delivered);
+            message(resultMessage,false);refreshPrinterUi();
         });
     }
     public final class Bridge {
@@ -194,6 +203,12 @@ public class MainActivity extends Activity {
                     }
                     case "saveSettings": db.saveSettings(p.getJSONObject("settings")); result=true; break;
                     case "previewReceipt": result=Receipt.preview(PosDatabase.receiptSettings(p.getJSONObject("settings")),p.optString("method","CASH")); break;
+                    case "printerDevices": result=printerDevices(); break;
+                    case "savePrinter": savePrinter(p.getString("address"));result=true;break;
+                    case "clearPrinter": if(printing.get())throw new IllegalArgumentException("Tunggu proses cetak selesai.");printerSelection.clear();result=true;break;
+                    case "confirmPrinterTest": printerSelection.confirm(p.getString("testId"),p.getBoolean("paper"));result=true;break;
+                    case "openBluetoothSettings": runOnUiThread(()->startActivity(new Intent(Settings.ACTION_BLUETOOTH_SETTINGS)));result=true;break;
+                    case "openBluetoothPermissions": runOnUiThread(()->startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,Uri.parse("package:"+getPackageName()))));result=true;break;
                     case "choosePrinter": runOnUiThread(()->choosePrinter()); result=true; break;
                     case "print": {
                         JSONObject sale=db.sale(PosDatabase.number(p,"id",1,Long.MAX_VALUE));
@@ -203,7 +218,7 @@ public class MainActivity extends Activity {
                         if(sale.getInt("cancelled")==1) receipt="*** DIBATALKAN ***\n"+receipt;
                         print(receipt); result=true; break;
                     }
-                    case "testPrint": print("JusMerdeka\nTES PRINTER BLUETOOTH\n12345678901234567890123456789012\nJika terbaca, printer siap.\n"); result=true; break;
+                    case "testPrint": print("JusMerdeka\nTES PRINTER BLUETOOTH\n12345678901234567890123456789012\nJika terbaca, konfirmasi di aplikasi.\n",true); result=true; break;
                     case "backup": runOnUiThread(()-> {
                         Intent i=new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/json").addCategory(Intent.CATEGORY_OPENABLE)
                             .putExtra(Intent.EXTRA_TITLE,"JusMerdeka-backup-"+System.currentTimeMillis()+".json");
@@ -233,7 +248,7 @@ public class MainActivity extends Activity {
     }
     @Override public void onRequestPermissionsResult(int code,String[] names,int[] grants) {
         super.onRequestPermissionsResult(code,names,grants);
-        if(code==BLUETOOTH) { if(bluetoothPermission()) choosePrinter(); else message("Izin Bluetooth ditolak. Kasir tetap dapat digunakan tanpa printer.",false); }
+        if(code==BLUETOOTH) { if(bluetoothPermission()) choosePrinter(); else {message("Izin perangkat terdekat belum aktif. Buka izin aplikasi untuk mengaktifkannya.",false);refreshPrinterUi();} }
     }
     @Override protected void onActivityResult(int request,int result,Intent data) {
         super.onActivityResult(request,result,data);
@@ -282,6 +297,7 @@ public class MainActivity extends Activity {
             } catch(Exception e) { message(e instanceof IllegalArgumentException?e.getMessage():"Proses file gagal. Data kasir tetap tersimpan.",false); }
         });
     }
+    @Override protected void onResume(){super.onResume();refreshPrinterUi();}
     @Override public void onBackPressed() { web.evaluateJavascript("window.goHome && window.goHome()",null); }
     @Override protected void onDestroy() {
         destroyed=true;

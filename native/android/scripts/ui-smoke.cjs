@@ -5,11 +5,19 @@ const page=await browser.newPage({viewport:{width:390,height:844}});
 const errors=[];page.on('pageerror',e=>errors.push(e.message));page.on('console',m=>{if(m.type()==='error')errors.push(m.text());});
 await page.addInitScript(()=>{
  const state={products:[{id:1,name:'Jus Mangga',category:'Jus',price:10000,cost:4000,stock:5}],settings:{name:'JusMerdeka',address:'Gudo',phone:'',footer:'Terima kasih'},printerName:'Belum dipilih'};
+ window.printerData={supported:true,permission:true,enabled:true,items:[{name:'IWARE Printer',address:'AA:BB:CC:DD:EE:01'},{name:'Speaker',address:'AA:BB:CC:DD:EE:02'}],selected:{address:'',name:'Belum dipilih',testStatus:'',testId:'',busy:false}};
  const sales=[],expenses=[];let role='';window.printCalls=0;
  window.NativePOS={request(raw){const p=JSON.parse(raw);let data=true;
  if(!['login','logout','session'].includes(p.action)&&!role)return JSON.stringify({ok:false,error:'Silakan login terlebih dahulu.'});
- if(role==='CASHIER'&&['saveProduct','archiveProduct','cancel','report','saveSettings','backup','restore','choosePrinter','testPrint','previewReceipt','reportRange','exportReport','syncStatus','syncNow','connectSync','disconnectSync'].includes(p.action))return JSON.stringify({ok:false,error:'Akses ini hanya untuk admin.'});
+ if(role==='CASHIER'&&['saveProduct','archiveProduct','cancel','report','saveSettings','backup','restore','printerDevices','savePrinter','clearPrinter','confirmPrinterTest','openBluetoothSettings','openBluetoothPermissions','choosePrinter','testPrint','previewReceipt','reportRange','exportReport','syncStatus','syncNow','connectSync','disconnectSync'].includes(p.action))return JSON.stringify({ok:false,error:'Akses ini hanya untuk admin.'});
  switch(p.action){
+ case 'printerDevices':data=window.printerData;break;
+ case 'savePrinter':{const d=window.printerData.items.find(x=>x.address===p.address);if(window.printerData.selected.address!==d.address)window.printerData.selected={...d,testStatus:'',testId:'',busy:false};state.printerName=d.name;break;}
+ case 'clearPrinter':window.printerData.selected={address:'',name:'Belum dipilih',testStatus:'',testId:'',busy:false};state.printerName='Belum dipilih';break;
+ case 'confirmPrinterTest':window.printerData.selected.testStatus=p.paper?'CONFIRMED':'NO_PAPER';break;
+ case 'testPrint':window.printerData.selected.testStatus='SENDING';window.printerData.selected.busy=true;window.printerData.selected.testId='test-current';break;
+ case 'choosePrinter':setTimeout(()=>window.openPrinterPicker(),0);break;
+ case 'openBluetoothSettings':window.bluetoothSettingsCalls=(window.bluetoothSettingsCalls||0)+1;break;
  case 'syncStatus':data={configured:false,status:'Belum terhubung.',origin:'',lastSuccess:'',busy:false};break;
  case 'connectSync':window.connectSyncCalls=(window.connectSyncCalls||0)+1;break;
  case 'session':data={role};break;
@@ -66,6 +74,33 @@ await page.locator('nav [data-tab="laporan"]').click();await page.getByRole('hea
 for(const mode of ['DAY','WEEK','MONTH']){await page.locator('#report-mode').selectOption(mode);await page.getByRole('button',{name:'Ekspor laporan Excel (.xlsx)'}).click();if(await page.evaluate(()=>window.exportRequest.mode)!==mode)throw Error('Wrong export period');}
 
 await page.locator('nav [data-tab="pengaturan"]').click();await page.getByRole('heading',{name:'Printer Bluetooth'}).waitFor();
+await page.getByRole('button',{name:'Siapkan printer',exact:true}).click();
+await page.getByRole('heading',{name:'Siapkan printer',exact:true}).waitFor();
+if(await page.getByRole('button',{name:'Pilih satu perangkat dahulu',exact:true}).isEnabled())throw Error('Printer was preselected');
+await page.locator('[name=printer-choice][value="AA:BB:CC:DD:EE:01"]').check();
+await page.getByRole('button',{name:'Gunakan IWARE Printer',exact:true}).click();
+await page.getByText('Dipilih · belum dites',{exact:true}).first().waitFor();
+await page.getByRole('button',{name:'Cetak kertas tes',exact:true}).click();
+await page.getByText('Mengirim data… tunggu proses selesai.',{exact:true}).waitFor();
+if(await page.getByRole('button',{name:'Cetak kertas tes',exact:true}).isEnabled())throw Error('Duplicate test available while printing');
+await page.evaluate(()=>{window.printerData.selected.testStatus='AWAITING';window.printerData.selected.busy=false;window.refreshPrinterPicker();});
+await page.getByRole('button',{name:'Belum keluar',exact:true}).click();
+await page.getByText('Periksa printer sebelum tes ulang',{exact:true}).waitFor();
+await page.getByRole('button',{name:'Cetak kertas tes',exact:true}).click();
+await page.evaluate(()=>{window.printerData.selected.testStatus='AWAITING';window.printerData.selected.busy=false;window.refreshPrinterPicker();});
+await page.getByRole('button',{name:'Ya, kertas keluar',exact:true}).click();
+await page.getByText('✓ Admin mengonfirmasi kertas tes keluar.',{exact:true}).waitFor();
+if(await page.locator('#printer-picker').evaluate(el=>el.scrollWidth>el.clientWidth))throw Error('Printer picker overflows phone width');
+await page.screenshot({path:(process.env.UI_SCREENSHOT||'/tmp/jm-mobile.png').replace('.png','-printer.png'),fullPage:true});
+// Empty, permission and Bluetooth-off states remain actionable and never overwrite the selected printer.
+await page.evaluate(()=>{window.printerData.items=[];window.refreshPrinterPicker();});await page.getByText('Belum ada perangkat berpasangan',{exact:true}).waitFor();
+await page.getByRole('button',{name:'Pasangkan di Bluetooth HP',exact:true}).click();if(await page.evaluate(()=>window.bluetoothSettingsCalls)!==1)throw Error('Bluetooth settings not opened');
+await page.evaluate(()=>{window.printerData.permission=false;window.refreshPrinterPicker();});await page.getByRole('button',{name:'Izinkan Bluetooth',exact:true}).waitFor();
+await page.evaluate(()=>{window.printerData.permission=true;window.printerData.enabled=false;window.refreshPrinterPicker();});await page.getByText('Bluetooth HP masih mati',{exact:true}).waitFor();
+await page.evaluate(()=>{window.printerData.enabled=true;window.printerData.items=[{name:'IWARE Printer',address:'AA:BB:CC:DD:EE:01'},{name:'IWARE Lain',address:'AA:BB:CC:DD:EE:02'}];window.refreshPrinterPicker();});
+await page.locator('[name=printer-choice][value="AA:BB:CC:DD:EE:02"]').check();await page.getByRole('button',{name:'Gunakan IWARE Lain',exact:true}).click();
+if(await page.getByText('✓ Admin mengonfirmasi kertas tes keluar.',{exact:true}).count())throw Error('Confirmation leaked to another printer');
+await page.getByRole('button',{name:'Tutup',exact:true}).click();
 await page.getByRole('heading',{name:'Pantau dari jauh'}).waitFor();await page.getByRole('button',{name:'Pilih file koneksi'}).click();if(await page.evaluate(()=>window.connectSyncCalls)!==1)throw Error('Connection picker not invoked');
 await page.locator('#settings-form [name=header]').fill('SEGAR SETIAP HARI');
 await page.locator('#settings-form [name=paper]').selectOption('48');await page.locator('#preview-method').selectOption('QRIS');
@@ -91,7 +126,7 @@ await page.getByRole('button',{name:'Bayar & simpan'}).click();await page.getByR
 if(await page.getByRole('button',{name:/Batalkan transaksi/}).count())throw Error('Cashier sees cancellation');
 if(await page.getByRole('button',{name:/Pilih printer/}).count())throw Error('Cashier sees printer configuration');
 if(await page.locator('#paper').count())throw Error('Cashier can change paper');
-const configDenied=await page.evaluate(()=>['choosePrinter','testPrint','previewReceipt'].every(action=>{try{api(action);return false;}catch{return true;}}));if(!configDenied)throw Error('Cashier can configure printer');
+const configDenied=await page.evaluate(()=>['printerDevices','savePrinter','clearPrinter','confirmPrinterTest','openBluetoothSettings','openBluetoothPermissions','choosePrinter','testPrint','previewReceipt'].every(action=>{try{api(action);return false;}catch{return true;}}));if(!configDenied)throw Error('Cashier can configure printer');
 if(await page.evaluate(()=>window.printCalls)!==1)throw Error('Requested note was not printed once');
 await page.getByRole('button',{name:'Selesai tanpa cetak',exact:true}).click();
 if(await page.evaluate(()=>window.printCalls)!==1)throw Error('No-print choice printed again');

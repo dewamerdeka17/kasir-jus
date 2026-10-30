@@ -8,8 +8,8 @@ android {
         applicationId "com.jusmerdeka.pos"
         minSdk 24
         targetSdk 36
-        versionCode 9
-        versionName "3.0.1-offline"
+        versionCode 10
+        versionName "3.1.0-offline"
     }
 
     buildFeatures { buildConfig true }

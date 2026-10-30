@@ -96,3 +96,9 @@ The independent Next.js backend and SQL migration are in `remote-monitor/`. Its 
 ## Bluetooth print delivery (v3.0.1)
 
 Print jobs now pause after ESC/POS initialization, send small paced chunks, and keep the RFCOMM socket open briefly after flushing. The connection is no longer closed immediately after a single write. The complete job has a bounded timeout; uncertain/partial writes are never automatically resent because that could duplicate a receipt. The UI explicitly says data delivery does not confirm physical paper output. Model-specific Iware compatibility still requires the exact printer model and a physical test; no hardware acknowledgement is claimed.
+
+## Printer setup UI (v3.1)
+
+Admin printer setup is now a guided in-app picker: Bluetooth/permission readiness, paired device selection with an explicit save button, then a paper test. No device is silently selected. Saved device name, address suffix, and current selection are shown, with actionable empty/permission/Bluetooth-off states and a settings shortcut. Returning from Android Bluetooth settings refreshes the picker. Only paired devices can be saved, and changing/clearing selection is blocked during a print job.
+
+Test delivery and physical output are separate states. After a test is sent, the admin must choose whether the paper came out and was readable. An explicit confirmation is labelled as such, not as a hardware acknowledgement. Changing printer invalidates old test confirmations, and stale test callbacks cannot mark another printer as verified. Cashiers cannot access the picker, device list, Android Bluetooth settings shortcuts, selection or test confirmation actions.

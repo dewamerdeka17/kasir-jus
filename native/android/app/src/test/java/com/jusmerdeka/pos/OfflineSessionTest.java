@@ -25,7 +25,7 @@ public class OfflineSessionTest {
         try { s.login("ADMIN","123456"); fail("Cashier PIN accepted for admin"); } catch(IllegalArgumentException expected) {}
         assertEquals("CASHIER",s.login("CASHIER","123456"));
         for(String action:new String[]{"state","checkout","history","sale","print","expenses","addExpense"}) s.require(action);
-        for(String action:new String[]{"saveProduct","archiveProduct","cancel","report","saveSettings","backup","restore","cancelExpense","reportRange","exportReport","choosePrinter","testPrint","previewReceipt","debts","debt","payDebt"}) {
+        for(String action:new String[]{"saveProduct","archiveProduct","cancel","report","saveSettings","backup","restore","cancelExpense","reportRange","exportReport","printerDevices","savePrinter","clearPrinter","confirmPrinterTest","openBluetoothSettings","openBluetoothPermissions","choosePrinter","testPrint","previewReceipt","debts","debt","payDebt"}) {
             try { s.require(action); fail("Cashier authorized for "+action); } catch(IllegalArgumentException expected) {}
         }
         try { s.login("ADMIN","654321"); fail("Switched roles without logout"); } catch(IllegalArgumentException expected) {}
@@ -45,7 +45,7 @@ public class OfflineSessionTest {
         MainActivity.Bridge bridge=activity.new Bridge();
         assertFalse(new JSONObject(bridge.request("{\"action\":\"state\"}")).getBoolean("ok"));
         assertTrue(new JSONObject(bridge.request("{\"action\":\"login\",\"role\":\"CASHIER\",\"pin\":\"123456\"}")).getBoolean("ok"));
-        for(String action:new String[]{"saveProduct","archiveProduct","cancel","report","saveSettings","backup","restore","cancelExpense","reportRange","exportReport","choosePrinter","testPrint","previewReceipt","debts","debt","payDebt"})
+        for(String action:new String[]{"saveProduct","archiveProduct","cancel","report","saveSettings","backup","restore","cancelExpense","reportRange","exportReport","printerDevices","savePrinter","clearPrinter","confirmPrinterTest","openBluetoothSettings","openBluetoothPermissions","choosePrinter","testPrint","previewReceipt","debts","debt","payDebt"})
             assertFalse(action,new JSONObject(bridge.request(new JSONObject().put("action",action).toString())).getBoolean("ok"));
         JSONObject state=new JSONObject(bridge.request("{\"action\":\"state\"}")).getJSONObject("data");
         assertFalse(state.getJSONArray("products").getJSONObject(0).has("cost"));
