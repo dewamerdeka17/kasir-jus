@@ -1,6 +1,6 @@
 # JusMerdeka remote monitor · Vercel + Neon
 
-Next.js dashboard and authenticated sync API for the local Android SQLite ledger. The Vercel project has been registered as `jusmerdeka-monitor` in `dewas-projects-9fc442ca`, with GitHub root directory `remote-monitor`. **Database credentials have not been configured: automatic approval rejected copying them to the new project. This is not an active production connection yet.**
+Next.js dashboard and authenticated sync API for the local Android SQLite ledger. The Vercel project has been registered as `jusmerdeka-monitor` in `dewas-projects-9fc442ca`, with GitHub root directory `remote-monitor`. Production is active at https://jusmerdeka-monitor.vercel.app. The owner approved the existing JusMerdeka Neon connection and a separate session secret. The additive monitor migration has been applied. Vercel Standard Protection keeps previews/deployment URLs protected while the primary production domain is available to browsers and the APK; business data still requires application admin authentication. Verified on 2026-10-30.
 
 ## Activation
 
