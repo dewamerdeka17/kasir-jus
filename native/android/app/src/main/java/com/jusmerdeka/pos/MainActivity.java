@@ -128,7 +128,7 @@ public class MainActivity extends Activity {
         if(address.isEmpty()) { message("Pilih printer di Pengaturan dahulu. Transaksi tetap tersimpan.",false); return; }
         if(!printing.compareAndSet(false,true)) { message("Masih mencetak struk sebelumnya.",false); return; }
         io.execute(()-> {
-            BluetoothSocket jobSocket=null; ScheduledFuture<?> timeout=null;
+            BluetoothSocket jobSocket=null; ScheduledFuture<?> timeout=null; final AtomicBoolean expired=new AtomicBoolean(false);
             try {
                 BluetoothAdapter a=adapter();
                 if(a==null||!a.isEnabled()) throw new IllegalArgumentException("Aktifkan Bluetooth.");
@@ -136,9 +136,11 @@ public class MainActivity extends Activity {
                 if(device.getBondState()!=BluetoothDevice.BOND_BONDED) throw new IllegalArgumentException("Pasangkan ulang printer di pengaturan HP.");
                 jobSocket=device.createRfcommSocketToServiceRecord(UUID.fromString("00001101-0000-1000-8000-00805F9B34FB"));
                 socket=jobSocket; final BluetoothSocket pending=jobSocket;
-                timeout=timer.schedule(()-> { try { pending.close(); } catch(Exception ignored) {} },15,TimeUnit.SECONDS);
-                jobSocket.connect(); OutputStream out=jobSocket.getOutputStream(); out.write(Receipt.bytes(text)); out.flush();
-                message("Struk dikirim. Periksa hasil di printer sebelum cetak ulang.",false);
+                timeout=timer.schedule(()-> { expired.set(true); try { pending.close(); } catch(Exception ignored) {} },35,TimeUnit.SECONDS);
+                jobSocket.connect();
+                PrinterTransport.send(jobSocket.getOutputStream(),Receipt.bytes(text),Thread::sleep);
+                if(expired.get())throw new java.io.IOException("Printer timeout");
+                message("Data dikirim ke printer. Aplikasi belum bisa memastikan kertas keluar. Periksa hasil cetak.",false);
             } catch(Exception e) { message("Cetak gagal / hasil belum pasti. Transaksi tetap tersimpan. Periksa printer sebelum cetak ulang.",false); }
             finally {
                 if(timeout!=null) timeout.cancel(false);
