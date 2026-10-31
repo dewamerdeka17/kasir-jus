@@ -84,6 +84,23 @@ public class PosDatabaseTest {
         }
         assertEquals(27,Receipt.bytes("test")[0]);
     }
+    @Test public void simple58mmReceiptKeepsAmountsAndOmitsUnusedLines() throws Exception {
+        JSONObject sale=new JSONObject().put("invoice","JM-001").put("created_at","2026-10-31T14:35:20+07:00")
+            .put("subtotal",16000).put("discount",0).put("total",16000).put("paid",20000).put("payment_method","CASH")
+            .put("items",new JSONArray().put(new JSONObject().put("name","Jus Semangka").put("qty",2).put("price",8000)));
+        JSONObject shop=new JSONObject().put("name","JusMerdeka").put("footer","Terima kasih!");
+        String cash=Receipt.format(sale,shop,32);
+        assertTrue(cash.contains("31/10/2026 14:35"));
+        assertTrue(cash.contains("2 x Rp8.000")); assertTrue(cash.contains("Rp16.000"));
+        assertTrue(cash.contains("Tunai: Rp20.000")); assertTrue(cash.contains("Kembali: Rp4.000"));
+        assertFalse(cash.contains("Subtotal:")); assertFalse(cash.contains("Diskon:")); assertFalse(cash.contains("\n\n"));
+        String discounted=Receipt.format(sale.put("discount",1000).put("total",15000),shop,32);
+        assertTrue(discounted.contains("Subtotal: Rp16.000")); assertTrue(discounted.contains("Diskon: Rp1.000"));
+        String qris=Receipt.format(sale.put("payment_method","QRIS"),shop,32);
+        assertTrue(qris.contains("Metode: QRIS")); assertFalse(qris.contains("Kembali:"));
+        assertFalse(qris.contains("Dikonfirmasi kasir"));
+        for(String row:qris.split("\n")) assertTrue(row.length()<=32);
+    }
     @Test public void creditCheckoutAndInstallmentsAreAtomicAndIdempotent() throws Exception {
         JSONObject sale=db.checkout(order("credit-sale-request-001",2,0).put("paymentMethod","CREDIT").put("customer","Bu Ani").put("phone","0812345"));
         long saleId=sale.getLong("id");
