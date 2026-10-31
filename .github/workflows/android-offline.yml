@@ -1,0 +1,83 @@
+name: Android offline APK
+on:
+  push:
+    branches: [main]
+    paths: ['native/android/**', 'remote-monitor/**', '.github/workflows/android-offline.yml']
+  pull_request:
+    paths: ['native/android/**', 'remote-monitor/**', '.github/workflows/android-offline.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  cashier-ui:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Install browser test tools
+        run: |
+          npm install --prefix "$RUNNER_TEMP/pos-ui" --no-save playwright@1.62.1
+          "$RUNNER_TEMP/pos-ui/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Test bundled offline UI
+        env:
+          NODE_PATH: ${{ runner.temp }}/pos-ui/node_modules
+          UI_SCREENSHOT: ${{ runner.temp }}/jusmerdeka-mobile.png
+        run: node native/android/scripts/ui-smoke.cjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cashier-mobile-preview
+          path: ${{ runner.temp }}/jusmerdeka-mobile*.png
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+          log-accepted-android-sdk-licenses: false
+      - name: Install Android SDK
+        run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
+      - name: Test ledger and build APK
+        working-directory: native/android
+        run: bash gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+      - name: Verify generated Excel sample
+        if: success()
+        run: python -c "import base64,pathlib; p=next(pathlib.Path('native/android').rglob('sample-export.xlsx')); print('XLSX_SAMPLE_BASE64:'+base64.b64encode(p.read_bytes()).decode())"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-test-reports
+          path: |
+            native/android/app/build/reports/tests/
+            native/android/app/build/reports/lint-results-debug.html
+            native/android/**/sample-export.xlsx
+      - uses: actions/upload-artifact@v4
+        with:
+          name: JusMerdeka-offline-debug-apk
+          path: native/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  monitor-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install monitor dependencies
+        run: npm ci --prefix remote-monitor
+      - name: Check monitor types and transactional sync
+        run: |
+          npm run typecheck --prefix remote-monitor
+          npm test --prefix remote-monitor
+      - name: Build monitor without production credentials
+        run: npm run build --prefix remote-monitor

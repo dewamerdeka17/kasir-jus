@@ -48,4 +48,4 @@ Stok bahan baku, resep otomatis, supplier, multi-cabang, PWA/offline, integrasi 
 
 ## Android
 
-Proyek native Android berada di `native/android`. APK debug dapat dibangun dengan `native/android/gradlew.bat assembleDebug` dan tetap membutuhkan internet untuk mengakses database server.
+Proyek Android di `native/android` menyediakan **kasir offline untuk satu HP** dengan SQLite lokal, pembayaran tunai, stok, laporan, backup/restore JSON, dan cetak struk Bluetooth Classic/SPP ESC/POS. Aset kasir disertakan dalam APK; data website tidak otomatis tersinkron. Lihat [panduan Android](native/android/README.md) untuk build, pemasangan, batasan, dan pengujian printer fisik. APK debug dan hasil pengujian tersedia sebagai artifact workflow **Android offline APK** jika build berhasil.
