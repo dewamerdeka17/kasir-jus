@@ -210,7 +210,7 @@ document.addEventListener('click',event=>{
    case 'syncNow':api('syncNow');notify('Pembaruan dijadwalkan. Periksa status setelah beberapa saat.');updateSyncStatus();break;
    case 'disconnectSync':if(confirm('Putuskan koneksi di HP ini? Data kasir tetap tersimpan. Akses pengiriman juga bisa dicabut di dashboard.')){api('disconnectSync');updateSyncStatus();}break;
    case 'connectSync':api('connectSync');break;
-   case 'previewDailyReport':{const r=api('previewDailyReport',{anchor:reportAnchor});modal('Struk laporan harian',`<p>Laporan ${esc(r.day)} · nominal dalam rupiah. Rincian lengkap bisa membutuhkan kertas panjang.</p><pre class="receipt-paper" data-paper="${r.paper}">${esc(r.text)}</pre><button class="wide" data-action="printDailyReport" data-day="${esc(r.day)}">Cetak laporan harian</button><button class="secondary wide spaced" data-action="close">Tutup</button>`);break;}
+   case 'previewDailyReport':{const r=api('previewDailyReport',{anchor:reportAnchor});modal('Struk laporan harian',`<p>Laporan ${esc(r.day)} · nominal dalam rupiah. Rincian lengkap bisa membutuhkan kertas panjang.</p><pre class="receipt-paper" data-paper="${r.paper}">${esc(r.text)}</pre><button class="wide" data-action="printDailyReport" data-day="${esc(r.day)}">Cetak laporan harian</button>`);break;}
    case 'printDailyReport':api('printDailyReport',{anchor:b.dataset.day});notify('Proses cetak laporan dimulai.');break;
    case 'exportReport':api('exportReport',{mode:reportMode,anchor:reportAnchor});break;
    case 'choosePrinter':openPrinterPicker();break;
