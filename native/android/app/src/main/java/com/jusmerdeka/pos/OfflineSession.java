@@ -11,9 +11,9 @@ import java.util.Set;
 /** Local role gate. Session is memory-only; closing the activity requires the PIN again. */
 public final class OfflineSession {
     private static final Set<String> COMMON = new HashSet<>(Arrays.asList(
-        "state", "checkout", "history", "sale", "print", "expenses", "addExpense"));
+        "state", "checkout", "history", "sale", "print", "expenses", "addExpense", "previewDailyReport", "printDailyReport"));
     private static final Set<String> ADMIN = new HashSet<>(Arrays.asList(
-        "printerDevices", "savePrinter", "clearPrinter", "confirmPrinterTest", "openBluetoothSettings", "openBluetoothPermissions", "syncStatus", "syncNow", "connectSync", "disconnectSync", "reportRange", "exportReport", "previewDailyReport", "printDailyReport", "previewReceipt", "choosePrinter", "testPrint", "cancelExpense", "saveProduct", "archiveProduct", "cancel", "report", "saveSettings", "backup", "restore"));
+        "printerDevices", "savePrinter", "clearPrinter", "confirmPrinterTest", "openBluetoothSettings", "openBluetoothPermissions", "syncStatus", "syncNow", "connectSync", "disconnectSync", "reportRange", "exportReport", "previewReceipt", "choosePrinter", "testPrint", "cancelExpense", "saveProduct", "archiveProduct", "cancel", "report", "saveSettings", "backup", "restore"));
     private final SharedPreferences attempts;
     private String role="";
 

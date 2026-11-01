@@ -9,7 +9,7 @@ await page.addInitScript(()=>{
  const sales=[],expenses=[];let role='';window.printCalls=0;
  window.NativePOS={request(raw){const p=JSON.parse(raw);let data=true;
  if(!['login','logout','session'].includes(p.action)&&!role)return JSON.stringify({ok:false,error:'Silakan login terlebih dahulu.'});
- if(role==='CASHIER'&&['saveProduct','archiveProduct','cancel','report','saveSettings','backup','restore','printerDevices','savePrinter','clearPrinter','confirmPrinterTest','openBluetoothSettings','openBluetoothPermissions','choosePrinter','testPrint','previewReceipt','reportRange','exportReport','previewDailyReport','printDailyReport','syncStatus','syncNow','connectSync','disconnectSync'].includes(p.action))return JSON.stringify({ok:false,error:'Akses ini hanya untuk admin.'});
+ if(role==='CASHIER'&&['saveProduct','archiveProduct','cancel','report','saveSettings','backup','restore','printerDevices','savePrinter','clearPrinter','confirmPrinterTest','openBluetoothSettings','openBluetoothPermissions','choosePrinter','testPrint','previewReceipt','reportRange','exportReport','syncStatus','syncNow','connectSync','disconnectSync'].includes(p.action))return JSON.stringify({ok:false,error:'Akses ini hanya untuk admin.'});
  switch(p.action){
  case 'printerDevices':data=window.printerData;break;
  case 'savePrinter':{const d=window.printerData.items.find(x=>x.address===p.address);if(window.printerData.selected.address!==d.address)window.printerData.selected={...d,testStatus:'',testId:'',busy:false};state.printerName=d.name;break;}
@@ -135,7 +135,7 @@ await page.getByRole('button',{name:'Bayar & simpan'}).click();await page.getByR
 if(await page.getByRole('button',{name:/Batalkan transaksi/}).count())throw Error('Cashier sees cancellation');
 if(await page.getByRole('button',{name:/Pilih printer/}).count())throw Error('Cashier sees printer configuration');
 if(await page.locator('#paper').count())throw Error('Cashier can change paper');
-const configDenied=await page.evaluate(()=>['printerDevices','savePrinter','clearPrinter','confirmPrinterTest','openBluetoothSettings','openBluetoothPermissions','choosePrinter','testPrint','previewReceipt','previewDailyReport','printDailyReport'].every(action=>{try{api(action);return false;}catch{return true;}}));if(!configDenied)throw Error('Cashier can configure printer');
+const configDenied=await page.evaluate(()=>['printerDevices','savePrinter','clearPrinter','confirmPrinterTest','openBluetoothSettings','openBluetoothPermissions','choosePrinter','testPrint','previewReceipt'].every(action=>{try{api(action);return false;}catch{return true;}}));if(!configDenied)throw Error('Cashier can configure printer');
 if(await page.evaluate(()=>window.printCalls)!==1)throw Error('Requested note was not printed once');
 await page.getByRole('button',{name:'Selesai tanpa cetak',exact:true}).click();
 if(await page.evaluate(()=>window.printCalls)!==1)throw Error('No-print choice printed again');
@@ -154,6 +154,13 @@ if(await page.evaluate(()=>localStorage.getItem('jm-expense-pending'))!==null)th
 if(await page.locator('nav [data-tab=kasbon]').count())throw Error('Kasbon menu still exists');
 if(!await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth))throw Error('Mobile horizontal overflow');
 await page.screenshot({path:process.env.UI_SCREENSHOT||'/tmp/jm-mobile.png',fullPage:true});
+await page.locator('nav [data-tab="riwayat"]').click();
+await page.locator('#daily-report-date').fill('2026-11-01');
+await page.getByRole('button',{name:'Preview & cetak laporan harian'}).click();
+await page.getByRole('heading',{name:'Struk laporan harian'}).waitFor();
+await page.getByRole('button',{name:'Cetak laporan harian',exact:true}).click();
+if(await page.evaluate(()=>window.dailyPrintDay)!=='2026-11-01')throw Error('Cashier daily report date incorrect');
+await page.getByRole('button',{name:'Tutup',exact:true}).click();
 await page.locator('nav [data-tab="kasir"]').click();
 await page.screenshot({path:(process.env.UI_SCREENSHOT||'/tmp/jm-mobile.png').replace('.png','-kasir.png'),fullPage:true});
 await page.locator('#logout').click();await page.getByRole('heading',{name:'Masuk ke JusMerdeka'}).waitFor();
