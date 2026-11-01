@@ -29,6 +29,33 @@ public class ReportTest {
         JSONArray expenses=new JSONArray().put(new JSONObject().put("id",1).put("expense_date","2026-10-23").put("category","BAHAN_BAKU").put("description","=HYPERLINK(\"test\")").put("amount",5000).put("created_by","CASHIER").put("cancelled",0));
         return ReportData.build(new JSONObject().put("sales",sales).put("expenses",expenses).put("shop",new JSONObject().put("name","JusMerdeka CONTOH")),ReportData.period("WEEK","2026-10-28"));
     }
+    @Test public void dailyReceiptSeparatesPaymentsAndExpensesAndFitsBothPapers() throws Exception {
+        JSONArray sales=new JSONArray().put(sale(1,"2026-10-23","CASH",2,12000,1000,false)).put(sale(2,"2026-10-23","QRIS",1,12000,0,false)).put(sale(3,"2026-10-23","CASH",99,12000,0,true));
+        JSONArray expenses=new JSONArray().put(new JSONObject().put("expense_date","2026-10-23").put("category","Bahan baku").put("description","Beli buah").put("amount",5000).put("cancelled",0)).put(new JSONObject().put("expense_date","2026-10-23").put("category","BATAL RAHASIA").put("amount",999999).put("cancelled",1));
+        JSONObject source=new JSONObject().put("shop",new JSONObject().put("name","JusMerdeka").put("address","Gudo").put("phone","08123")).put("sales",sales).put("expenses",expenses);
+        JSONObject report=ReportData.build(source,ReportData.period("DAY","2026-10-23"));
+        for(int columns:new int[]{32,48}) {
+            String text=Receipt.dailyReport(report,columns);
+            assertTrue(text.contains("LAPORAN HARIAN"));assertTrue(text.contains("23/10/2026"));
+            assertTrue(text.contains("35.000"));assertTrue(text.contains("30.000"));assertTrue(text.contains("36.000"));assertTrue(text.contains("1.000"));
+            assertTrue(text.contains("PEMBAYARAN TUNAI"));assertTrue(text.contains("PEMBAYARAN QRIS"));
+            assertTrue(text.contains("23.000"));assertTrue(text.contains("12.000"));assertTrue(text.contains("Beli buah"));
+            assertFalse(text.contains("BATAL RAHASIA"));assertFalse(text.contains("999.999"));assertFalse(text.contains("99 item"));
+            assertTrue(text.contains("3 item"));assertTrue(text.contains("bukan laba bersih"));
+            for(String row:text.split("\n"))assertTrue(row.length()<=columns);
+        }
+        try {Receipt.dailyReport(sample(),32);fail("Weekly report accepted");}catch(IllegalArgumentException expected){}
+    }
+    @Test public void dailyReceiptHandlesEmptyDayWithoutDroppingRecordsAboveHistoryLimit() throws Exception {
+        JSONObject source=new JSONObject().put("shop",new JSONObject().put("name","JusMerdeka")).put("sales",new JSONArray()).put("expenses",new JSONArray());
+        JSONObject period=ReportData.period("DAY","2026-10-23");
+        String empty=Receipt.dailyReport(ReportData.build(source,period),32);
+        assertTrue(empty.contains("Belum ada produk terjual."));assertTrue(empty.contains("Belum ada pengeluaran."));
+        JSONArray sales=source.getJSONArray("sales");for(int i=0;i<501;i++)sales.put(sale(i,"2026-10-23","CASH",1,1000,0,false));
+        String full=Receipt.dailyReport(ReportData.build(source,period),32);
+        assertTrue(full.contains("501 transaksi"));assertTrue(full.contains("501.000"));
+        assertEquals(501,full.split("Jus Mangga x1",-1).length-1);
+    }
     @Test public void selectedRangesRespectInclusiveDaysAndCalendarMonths() throws Exception {
         assertEquals("2026-10-22",ReportData.period("WEEK","2026-10-28").getString("start"));
         assertEquals("2024-02-29",ReportData.period("MONTH","2024-02-14").getString("end"));

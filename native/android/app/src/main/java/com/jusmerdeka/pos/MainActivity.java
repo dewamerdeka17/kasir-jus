@@ -195,6 +195,14 @@ public class MainActivity extends Activity {
                         JSONObject report=db.reportRange(p.getString("mode"),p.getString("anchor"));
                         result=new JSONObject().put("period",report.getJSONObject("period")).put("summary",report.getJSONObject("summary")).put("daily",report.getJSONArray("daily")).put("bestSellers",report.getJSONArray("bestSellers"));break;
                     }
+                    case "previewDailyReport": case "printDailyReport": {
+                        JSONObject report=db.reportRange("DAY",p.getString("anchor"));
+                        int columns=Integer.parseInt(db.settings().optString("paper","32"));
+                        String receipt=Receipt.dailyReport(report,columns);
+                        if("printDailyReport".equals(action)) { print(receipt);result=true; }
+                        else result=new JSONObject().put("text",receipt).put("paper",columns).put("day",report.getJSONObject("period").getString("start"));
+                        break;
+                    }
                     case "exportReport": {
                         JSONObject period=ReportData.period(p.getString("mode"),p.getString("anchor"));
                         pendingReport=new JSONObject().put("mode",p.getString("mode")).put("anchor",p.getString("anchor"));

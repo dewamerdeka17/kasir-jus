@@ -110,6 +110,73 @@ public final class Receipt {
         if(sale.optInt("cancelled")==1) line(out,"*** DIBATALKAN ***",columns);
         optional(out,shop.optString("footer"),columns); return out.toString();
     }
+    /** Uses the same immutable daily snapshot as Excel; never reads the 500-row history. */
+    public static String dailyReport(JSONObject report,int columns) throws Exception {
+        if(columns!=32&&columns!=48) throw new IllegalArgumentException("Lebar struk tidak valid.");
+        JSONObject period=report.getJSONObject("period");
+        if(!"DAY".equals(period.getString("mode"))||!period.getString("start").equals(period.getString("end")))
+            throw new IllegalArgumentException("Pilih periode 1 hari untuk cetak laporan harian.");
+        JSONObject shop=report.getJSONObject("shop"),summary=report.getJSONObject("summary");
+        StringBuilder out=new StringBuilder();String separator=new String(new char[columns]).replace('\0','-');
+        for(String key:new String[]{"name","address","phone"}) wrapped(out,shop.optString(key),columns,true);
+        wrapped(out,"LAPORAN HARIAN",columns,true);
+        pair(out,"Tanggal",shortDate(period.getString("start")+"T00:00").substring(0,10),columns);
+        wrapped(out,"Tanggal transaksi: WIB",columns,false);
+        line(out,separator,columns);
+        pair(out,"Transaksi sah",amount(summary.getLong("count")),columns);
+        pair(out,"Item terjual",amount(summary.getLong("qty")),columns);
+        pair(out,"Transaksi batal",amount(summary.getLong("cancelled")),columns);
+        long subtotal=0,discount=0;
+        for(String method:new String[]{"cash","qris","other"}) {
+            JSONArray rows=report.getJSONArray(method);
+            for(int i=0;i<rows.length();i++) { JSONObject row=rows.getJSONObject(i);if(!"SAH".equals(row.getString("status")))continue;
+                subtotal+=row.getLong("subtotal");discount+=row.getLong("discount"); }
+        }
+        pair(out,"Penjualan kotor",amount(subtotal),columns);
+        pair(out,"Diskon",amount(discount),columns);
+        pair(out,"OMZET BERSIH",amount(summary.getLong("revenue")),columns);
+        line(out,separator,columns);wrapped(out,"RINCIAN PRODUK / BEST SELLER",columns,false);
+        JSONArray products=report.getJSONArray("bestSellers");
+        if(products.length()==0) line(out,"Belum ada produk terjual.",columns);
+        for(int i=0;i<products.length();i++) {JSONObject product=products.getJSONObject(i);
+            wrapped(out,(i+1)+". "+product.getString("name"),columns,false);
+            pair(out,product.getLong("qty")+" item",amount(product.getLong("gross")),columns);
+        }
+        wrapped(out,"Nominal produk sebelum diskon.",columns,false);
+        for(String method:new String[]{"cash","qris","other"}) {
+            JSONArray rows=report.getJSONArray(method);int count=0;long total=0;
+            for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);if("SAH".equals(row.getString("status"))){count++;total+=row.getLong("total");}}
+            if(method.equals("other")&&count==0)continue;
+            line(out,separator,columns);line(out,method.equals("cash")?"PEMBAYARAN TUNAI":method.equals("qris")?"PEMBAYARAN QRIS":"KASBON / METODE LAMA",columns);
+            pair(out,count+" transaksi",amount(total),columns);
+            for(int i=0;i<rows.length();i++){JSONObject row=rows.getJSONObject(i);if(!"SAH".equals(row.getString("status")))continue;
+                pair(out,shortDate(row.getString("date")),amount(row.getLong("total")),columns);
+                wrapped(out,row.getString("items"),columns,false);
+                if(row.getLong("discount")>0)pair(out,"  Diskon",amount(row.getLong("discount")),columns);
+            }
+        }
+        line(out,separator,columns);line(out,"RINCIAN PENGELUARAN",columns);
+        JSONArray expenses=report.getJSONArray("expenses");int expenseCount=0,expenseCancelled=0;
+        for(int i=0;i<expenses.length();i++){JSONObject expense=expenses.getJSONObject(i);
+            if(expense.getInt("cancelled")==1){expenseCancelled++;continue;}expenseCount++;
+            wrapped(out,expenseCount+". "+expense.getString("category"),columns,false);
+            wrapped(out,expense.optString("description"),columns,false);
+            pair(out,"Nominal",amount(expense.getLong("amount")),columns);
+        }
+        if(expenseCount==0)line(out,"Belum ada pengeluaran.",columns);
+        pair(out,"Pengeluaran batal",amount(expenseCancelled),columns);
+        pair(out,"TOTAL PENGELUARAN",amount(summary.getLong("expenses")),columns);
+        line(out,separator,columns);
+        pair(out,"Tunai",amount(summary.getLong("cash")),columns);
+        pair(out,"QRIS",amount(summary.getLong("qris")),columns);
+        if(summary.getLong("legacy")!=0)pair(out,"Kasbon/metode lama",amount(summary.getLong("legacy")),columns);
+        pair(out,"Omzet - pengeluaran",amount(summary.getLong("afterExpenses")),columns);
+        wrapped(out,"Selisih ini bukan laba bersih.",columns,false);
+        wrapped(out,"Kasbon bukan penerimaan uang.",columns,false);
+        wrapped(out,"Data batal tidak masuk total.",columns,false);
+        line(out,separator,columns);wrapped(out,shop.optString("footer"),columns,false);
+        return out.toString();
+    }
     public static String preview(JSONObject settings,String method) throws Exception {
         if(!"QRIS".equals(method)&&!"CASH".equals(method)) throw new IllegalArgumentException("Metode contoh tidak valid.");
         JSONObject sale=new JSONObject().put("invoice","CONTOH-STRUK").put("created_at","2026-10-31T14:35:00+07:00")
