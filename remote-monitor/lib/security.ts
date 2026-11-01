@@ -1,0 +1,8 @@
+import {createHash,randomBytes,timingSafeEqual} from 'node:crypto';
+export const hash=(s:string)=>createHash('sha256').update(s).digest('hex');
+export const randomKey=()=>randomBytes(32).toString('base64url');
+export function equal(a:string,b:string){const x=Buffer.from(a),y=Buffer.from(b);return x.length===y.length&&timingSafeEqual(x,y);}
+export function sameOrigin(request:Request){const origin=request.headers.get('origin');if(request.headers.get('sec-fetch-site')==='cross-site'||!origin||origin!==new URL(request.url).origin)throw Error('FORBIDDEN');}
+export const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'}});
+export function failure(e:unknown){const m=e instanceof Error?e.message:'';return json({error:m==='UNAUTHORIZED'?'Silakan masuk dengan akun admin web JusMerdeka.':m==='FORBIDDEN'?'Permintaan ditolak.':m==='CONFIGURATION'?'Koneksi server belum diaktifkan.':'Proses belum berhasil. Coba lagi.'},m==='UNAUTHORIZED'?401:m==='FORBIDDEN'?403:503);}
+export async function bodyText(request:Request,max=512*1024){if(Number(request.headers.get('content-length'))>max)throw Error('TOO_LARGE');if(!request.headers.get('content-type')?.startsWith('application/json'))throw Error('FORMAT');const reader=request.body?.getReader();if(!reader)throw Error('FORMAT');const pieces:Uint8Array[]=[];let size=0;try{for(;;){const r=await reader.read();if(r.done)break;size+=r.value.length;if(size>max)throw Error('TOO_LARGE');pieces.push(r.value);}}finally{await reader.cancel();}return Buffer.concat(pieces).toString('utf8');}

@@ -1,0 +1,1 @@
+export async function GET(){const configured=!!process.env.DATABASE_URL&&!!process.env.SESSION_SECRET;return Response.json({service:'jusmerdeka-monitor',configured},{status:configured?200:503,headers:{'Cache-Control':'no-store'}});}

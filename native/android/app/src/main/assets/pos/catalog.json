@@ -1,0 +1,104 @@
+[
+  {
+    "name": "Jus Semangka",
+    "price": 8000,
+    "cost": 4000,
+    "category": "Jus Buah"
+  },
+  {
+    "name": "Jus Melon",
+    "price": 8000,
+    "cost": 4000,
+    "category": "Jus Buah"
+  },
+  {
+    "name": "Jus Tomat",
+    "price": 8000,
+    "cost": 4000,
+    "category": "Jus Buah"
+  },
+  {
+    "name": "Jus Wortel",
+    "price": 8000,
+    "cost": 4000,
+    "category": "Jus Buah"
+  },
+  {
+    "name": "Jus Nanas",
+    "price": 8000,
+    "cost": 4000,
+    "category": "Jus Buah"
+  },
+  {
+    "name": "Jus Apel",
+    "price": 10000,
+    "cost": 5000,
+    "category": "Jus Buah"
+  },
+  {
+    "name": "Jus Jambu",
+    "price": 10000,
+    "cost": 5000,
+    "category": "Jus Buah"
+  },
+  {
+    "name": "Jus Sirsak",
+    "price": 10000,
+    "cost": 5000,
+    "category": "Jus Buah"
+  },
+  {
+    "name": "Jus Strawberry",
+    "price": 10000,
+    "cost": 5000,
+    "category": "Jus Buah"
+  },
+  {
+    "name": "Jus Mangga",
+    "price": 12000,
+    "cost": 6000,
+    "category": "Jus Buah"
+  },
+  {
+    "name": "Jus Buah Naga",
+    "price": 12000,
+    "cost": 6000,
+    "category": "Jus Buah"
+  },
+  {
+    "name": "Jus Markisa",
+    "price": 12000,
+    "cost": 6000,
+    "category": "Jus Buah"
+  },
+  {
+    "name": "Jus Sawo",
+    "price": 12000,
+    "cost": 6000,
+    "category": "Jus Buah"
+  },
+  {
+    "name": "Jus Alpukat",
+    "price": 13000,
+    "cost": 6500,
+    "category": "Jus Buah"
+  },
+  {
+    "name": "Jus Durian",
+    "price": 13000,
+    "cost": 7000,
+    "category": "Jus Buah"
+  },
+  {
+    "name": "Jus Nanas + Wortel",
+    "price": 12000,
+    "cost": 6000,
+    "category": "Jus Mix"
+  },
+  {
+    "name": "Jus Apel + Tomat",
+    "price": 12000,
+    "cost": 6000,
+    "category": "Jus Mix"
+  }
+]
