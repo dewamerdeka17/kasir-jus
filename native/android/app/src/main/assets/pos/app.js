@@ -85,6 +85,7 @@ function renderReport(){
 }
 function receiptDraft(){return Object.fromEntries(new FormData($('#settings-form')));}
 function updateReceiptPreview(){
+ if(!$('#settings-form')||!$('#receipt-preview')||!$('#preview-error'))return;
  try{const draft=receiptDraft();const preview=api('previewReceipt',{settings:draft,method:$('#preview-method').value});$('#receipt-preview').textContent=preview;$('#receipt-preview').dataset.paper=draft.paper;$('#preview-error').hidden=true;}
  catch(e){$('#preview-error').textContent=e.message;$('#preview-error').hidden=false;}
 }
